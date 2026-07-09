@@ -1,5 +1,6 @@
 package com.cookiesextractor.app
 
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.ViewGroup
@@ -19,7 +20,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
  * Single-screen host.
  *  - COK-1.2: address bar + in-app WebView
  *  - COK-1.4: FAB -> extract cookies via CookieManager (empty-state Toast)
- *  - COK-1.5 (pending): shareCookies() swaps the preview Toast for ACTION_SEND
+ *  - COK-1.5: shareCookies() fires the ACTION_SEND share sheet
  *  - COK-1.3 (pending): passkey/WebAuthn WebView <-> Credential Manager bridge
  *
  * Rotation is handled via android:configChanges in the manifest, so the WebView is not
@@ -112,11 +113,15 @@ class MainActivity : AppCompatActivity() {
         webView.url?.let { CookieManager.getInstance().getCookie(it) }.orEmpty()
 
     /**
-     * Presents the extracted cookies. Currently a preview Toast; COK-1.5 rewrites only
-     * this method's body to fire an ACTION_SEND share sheet — the call site stays put.
+     * Shares the extracted cookies via the Android share sheet (ACTION_SEND, text/plain),
+     * wrapped in Intent.createChooser() per PRD §4.5.
      */
     private fun shareCookies(cookies: String) {
-        Toast.makeText(this, cookies, Toast.LENGTH_LONG).show()
+        val share = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, getString(R.string.share_preamble, cookies))
+        }
+        startActivity(Intent.createChooser(share, getString(R.string.share_chooser_title)))
     }
 
     private fun loadUrlFromField() {

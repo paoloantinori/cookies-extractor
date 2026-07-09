@@ -5,4 +5,6 @@
     <string name="default_url">https://example.com</string>
     <string name="share_cd">Extract and share session cookies</string>
     <string name="toast_no_cookies">No cookies found for this session.</string>
+    <string name="share_preamble">Here are the extracted session cookies:\n\n%1$s</string>
+    <string name="share_chooser_title">Share cookies</string>
 </resources>
