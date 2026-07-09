@@ -14,8 +14,6 @@ import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
-import androidx.webkit.WebSettingsCompat
-import androidx.webkit.WebViewFeature
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 
 /**
@@ -23,8 +21,6 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
  *  - COK-1.2: address bar + in-app WebView
  *  - COK-1.4: FAB -> extract cookies via CookieManager (empty-state Toast)
  *  - COK-1.5: shareCookies() fires the ACTION_SEND share sheet
- *  - COK-1.3: WebAuthn bridge via androidx.webkit (asset-linked sites only; arbitrary
- *    third-party passkeys are blocked by Android's anti-phishing model — see PRD §4.3)
  *
  * Rotation is handled via android:configChanges in the manifest, so the WebView is not
  * destroyed/recreated on orientation change and the loaded page survives.
@@ -98,27 +94,6 @@ class MainActivity : AppCompatActivity() {
         val cm = CookieManager.getInstance()
         cm.setAcceptCookie(true)
         cm.setAcceptThirdPartyCookies(webView, true)
-
-        enableWebAuthnIfNeeded()
-    }
-
-    /**
-     * Enables the WebView <-> Credential Manager WebAuthn bridge (androidx.webkit 1.14.0),
-     * gated by feature support. NOTE: Android requires Digital Asset Linking — passkeys
-     * here only fire for sites that host /.well-known/assetlinks.json declaring THIS app's
-     * package + signing cert. Arbitrary third-party passkey-only sites will NOT work (by
-     * design, to prevent phishing). See PRD §4.3 and COK-1.6.
-     */
-    private fun enableWebAuthnIfNeeded() {
-        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)) {
-            WebSettingsCompat.setWebAuthenticationSupport(
-                webView.settings,
-                WebSettingsCompat.WEB_AUTHENTICATION_SUPPORT_FOR_APP,
-            )
-        } else {
-            // Aids COK-1.6 device verification: distinguishes "bridge armed" from unsupported.
-            Log.w(TAG, "WebAuthn bridge not supported on this WebView; passkeys won't fire.")
-        }
     }
 
     /** Reads the session cookies for the currently loaded URL (PRD §4.4). */

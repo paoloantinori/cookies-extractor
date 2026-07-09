@@ -1,14 +1,14 @@
 # Product Requirements Document (PRD): WebView Cookie Extractor
 
 ## 1. Project Overview
-**Objective:** Build a single-screen Android application that allows a user to navigate to any web application, manually authenticate (bypassing headless-automation blockers like Passkeys, WebAuthn, and 2FA QR codes), and extract the resulting session cookies for sharing.
+**Objective:** Build a single-screen Android application that allows a user to navigate to any web application, manually authenticate (bypassing headless-automation blockers like 2FA QR codes and interactive logins), and extract the resulting session cookies for sharing. Passkey-only third-party logins are not supported — see §4.3.
 **Target Audience:** Internal use / developer tool.
 **Platform:** Android (Target SDK 35+; target the latest available — see §4.1).
 **Language:** Kotlin.
 
 ## 2. Core Features
 * **Dynamic Web Navigation:** An address bar allowing the user to input and load target URLs.
-* **Unrestricted Manual Authentication:** A WebView configured to handle modern web standards, JavaScript, DOM storage, and native OS authentication hand-offs (including Passkeys/WebAuthn — see §4.3).
+* **Manual Authentication:** A WebView configured to handle modern web standards, JavaScript, and DOM storage, supporting password, 2FA/OTP, and SSO-redirect logins. (Passkeys are out of scope — see §4.3.)
 * **Session Extraction:** One-tap retrieval of all session cookies for the currently loaded domain.
 * **Native Sharing:** Integration with the Android share sheet to send extracted cookies to messaging apps or the clipboard.
 
@@ -22,7 +22,7 @@ A single `MainActivity` with three components:
 
 ### 4.1. Starting Template & SDK
 * **Base:** Start with the Android Studio "Empty Views Activity" template.
-* **Target SDK:** As of 2026, Google Play requires `targetSdk` within one year of the latest release (API 35 minimum). This is an internal/dev tool likely sideloaded, so Play compliance is not strictly required — but target the **latest available SDK** (35, or 36 when installed) to get the best native Passkey/Credential Manager support. (Earlier draft's "SDK 34" is now stale.)
+* **Target SDK:** As of 2026, Google Play requires `targetSdk` within one year of the latest release (API 35 minimum). This is an internal/dev tool likely sideloaded, so Play compliance is not strictly required — but target the **latest available SDK** (35, or 36 when installed). (Earlier draft's "SDK 34" is now stale.)
 * **Alternative bootstrap:** Clone a boilerplate wrapper such as `MonsterTechnoGits/android-webview-wrapper` and strip unneeded features, retaining only the core WebView setup.
 
 ### 4.2. Required APIs and Dependencies
@@ -30,26 +30,15 @@ A single `MainActivity` with three components:
 * `android.webkit.WebViewClient` — force links to open in-app rather than the system browser.
 * `android.webkit.CookieManager` — the singleton used to extract session state.
 * `android.content.Intent` — specifically `Intent.ACTION_SEND` to pass extracted data to other apps.
-* **Credential Manager (for WebView Passkey bridging)** — the correct AndroidX coordinate is:
-  ```kotlin
-  implementation("androidx.credentials:credentials:<latest-stable>")
-  ```
-  > **Correction:** the earlier `androidx.credentialmanager:credentialmanager:1.2.2` is **not a published artifact** — that group does not exist and would break the Gradle build.
-* **WebView ↔ Credential Manager WebAuthn bridge (COK-1.3, per the official guide):**
-  ```kotlin
-  implementation("androidx.webkit:webkit:1.14.0")
-  implementation("androidx.credentials:credentials:1.6.0-beta02")
-  implementation("androidx.credentials:credentials-play-services-auth:1.6.0-beta02")
-  ```
-  Source: [Authenticate users with WebView](https://developer.android.com/identity/sign-in/credential-manager-webview) (updated 2026-02-26).
+* No authentication-bridge dependencies — passkeys/WebAuthn are not supported (see §4.3). Plain `WebView` + `CookieManager` + `Intent` suffice.
 
-### 4.3. WebView Configuration & Passkey/WebAuthn Support
+### 4.3. WebView Configuration & Passkey/WebAuthn (not supported)
 Initialize the WebView with JavaScript and DOM storage enabled:
 * `settings.javaScriptEnabled = true`
 * `settings.domStorageEnabled = true`
 * Set a `WebViewClient` to intercept URL loading.
 
-**Passkey/WebAuthn bridge (COK-1.3) — verified, with a hard limitation.** Enable it via `WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)` → `WebSettingsCompat.setWebAuthenticationSupport(settings, WEB_AUTHENTICATION_SUPPORT_FOR_APP)` (deps in §4.2). **Hard limitation — Digital Asset Linking is mandatory:** the *website* must host `/.well-known/assetlinks.json` declaring this app's package + signing cert. Because this app loads **arbitrary** sites it does not own, **passkey login will NOT work for arbitrary third-party sites** (e.g. Google/GitHub passkey sign-in). This is by Android's anti-phishing design — only the system browser (Chrome) and apps that asset-link to their own domains may assert credentials for an origin. Password, 2FA/OTP, and most SSO-redirect logins are unaffected. Passkey support is therefore limited to sites the operator explicitly asset-links to this app.
+**Passkey/WebAuthn — NOT supported (out of scope).** Android's security model prevents a third-party WebView app from asserting passkey credentials for origins it does not own: `WEB_AUTHENTICATION_SUPPORT_FOR_APP` requires the *website* to host `/.well-known/assetlinks.json` declaring this app (impossible for arbitrary third-party sites), and `WEB_AUTHENTICATION_SUPPORT_FOR_BROWSER` (WebAuthn for any site) requires **Google privileged-app approval** — granted only to genuine browsers, not a credential-extraction tool. A passkey bridge (COK-1.3) was implemented and verified on-device, then **removed** by decision: credential providers (e.g. Bitwarden) refuse third-party passkeys for non-asset-linked origins. Password, 2FA/OTP, and SSO-redirect logins are unaffected and fully supported.
 
 ### 4.4. Extraction Logic
 Bind to the FAB click listener. On tap, read the current URL from the WebView and pass it to the CookieManager.
@@ -69,5 +58,4 @@ Take the CookieManager output string and build a share intent:
 * **Sandbox compliance:** The app operates strictly within its own sandbox. No root permissions or cross-app data extraction.
 
 ## 6. Open Items / Verification Needed
-* Pin exact `androidx.credentials` and `androidx.webkit` stable versions at build time.
 * Confirm local Android SDK + JDK meet the Android Gradle Plugin requirements (see build-environment check).
