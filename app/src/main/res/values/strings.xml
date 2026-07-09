@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Cookie Extractor</string>
+    <string name="url_hint">Enter a URL</string>
+    <string name="go">Go</string>
+    <string name="default_url">https://example.com</string>
+    <string name="share_cd">Extract and share session cookies</string>
+    <string name="toast_no_cookies">No cookies found for this session.</string>
+</resources>

@@ -1,0 +1,4 @@
+<resources>
+    <!-- Material Components theme; the FAB added in COK-1.4 needs a Material theme. -->
+    <style name="Theme.CookiesExtractor" parent="Theme.MaterialComponents.DayNight.NoActionBar" />
+</resources>
