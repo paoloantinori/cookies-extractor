@@ -35,11 +35,13 @@ A single `MainActivity` with three components:
   implementation("androidx.credentials:credentials:<latest-stable>")
   ```
   > **Correction:** the earlier `androidx.credentialmanager:credentialmanager:1.2.2` is **not a published artifact** — that group does not exist and would break the Gradle build.
-* **WebKit (required for the WebView ↔ Credential Manager passkey bridge):**
+* **WebView ↔ Credential Manager WebAuthn bridge (COK-1.3, per the official guide):**
   ```kotlin
-  implementation("androidx.webkit:webkit:1.12.0") // 1.12.0+ per the official WebView auth guide
+  implementation("androidx.webkit:webkit:1.14.0")
+  implementation("androidx.credentials:credentials:1.6.0-beta02")
+  implementation("androidx.credentials:credentials-play-services-auth:1.6.0-beta02")
   ```
-* Exact version strings are pinned at implementation time from the live [Jetpack releases page](https://developer.android.com/jetpack/androidx/releases/credentials) — version numbers go stale.
+  Source: [Authenticate users with WebView](https://developer.android.com/identity/sign-in/credential-manager-webview) (updated 2026-02-26).
 
 ### 4.3. WebView Configuration & Passkey/WebAuthn Support
 Initialize the WebView with JavaScript and DOM storage enabled:
@@ -47,7 +49,7 @@ Initialize the WebView with JavaScript and DOM storage enabled:
 * `settings.domStorageEnabled = true`
 * Set a `WebViewClient` to intercept URL loading.
 
-**Passkey/WebAuthn is supported, but NOT automatic.** The earlier assumption — "a standard WebView automatically delegates WebAuthn to native Credential Manager if JavaScript is enabled" — is **incorrect**. Per the official guide [Authenticate users with WebView](https://developer.android.com/identity/sign-in/credential-manager-webview), you must wire the WebView's WebAuthn JS calls to the native Credential Manager API using `androidx.webkit` (1.12.0+). In practice this means `MainActivity` hosts not just a `WebView` but also a JS-bridge / digital-asset-links handler mediating the passkey handshake. **Treat this as its own implementation task** — it compiles clean but fails silently at runtime if skipped.
+**Passkey/WebAuthn bridge (COK-1.3) — verified, with a hard limitation.** Enable it via `WebViewFeature.isFeatureSupported(WebViewFeature.WEB_AUTHENTICATION)` → `WebSettingsCompat.setWebAuthenticationSupport(settings, WEB_AUTHENTICATION_SUPPORT_FOR_APP)` (deps in §4.2). **Hard limitation — Digital Asset Linking is mandatory:** the *website* must host `/.well-known/assetlinks.json` declaring this app's package + signing cert. Because this app loads **arbitrary** sites it does not own, **passkey login will NOT work for arbitrary third-party sites** (e.g. Google/GitHub passkey sign-in). This is by Android's anti-phishing design — only the system browser (Chrome) and apps that asset-link to their own domains may assert credentials for an origin. Password, 2FA/OTP, and most SSO-redirect logins are unaffected. Passkey support is therefore limited to sites the operator explicitly asset-links to this app.
 
 ### 4.4. Extraction Logic
 Bind to the FAB click listener. On tap, read the current URL from the WebView and pass it to the CookieManager.
