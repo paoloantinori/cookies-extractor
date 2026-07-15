@@ -33,6 +33,14 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 Toolchain: AGP 8.10.0, Kotlin 2.2.0, Gradle wrapper 8.11.1.
 
+## Keeping personal data out
+
+A pre-commit guard (`git-hooks/pre-commit`) refuses commits whose added lines look like
+personal data or secrets — private IP ranges, local home paths, the device hostname, and
+GitHub/Telegram tokens. It's active in this clone via `core.hooksPath`; in a fresh clone
+enable it with `git config core.hooksPath "$PWD/git-hooks"`. Bypass an intentional commit
+with `git commit --no-verify`.
+
 ## Scope
 Internal / developer tool; sideloaded (not published to Google Play).
 
