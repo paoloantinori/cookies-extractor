@@ -7,4 +7,10 @@
     <string name="toast_no_cookies">No cookies found for this session.</string>
     <string name="share_preamble">Here are the extracted session cookies:\n\n%1$s</string>
     <string name="share_chooser_title">Share cookies</string>
+    <string name="bookmarks_btn_cd">Open bookmarks</string>
+    <string name="bookmarks_title">Bookmarks</string>
+    <string name="add_current">Add current page</string>
+    <string name="bookmarks_empty">No bookmarks saved</string>
+    <string name="toast_no_page">No page to bookmark.</string>
+    <string name="bm_delete_cd">Delete bookmark</string>
 </resources>

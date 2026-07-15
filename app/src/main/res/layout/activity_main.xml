@@ -35,6 +35,16 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/go" />
+
+            <ImageButton
+                android:id="@+id/bookmarks_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/bookmarks_btn_cd"
+                android:minWidth="48dp"
+                android:minHeight="48dp"
+                android:src="@android:drawable/ic_menu_sort_by_size" />
         </LinearLayout>
 
         <!-- Main content: WebView fills all remaining space (PRD §3) -->
