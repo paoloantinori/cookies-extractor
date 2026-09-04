@@ -144,7 +144,7 @@ class MainActivity : AppCompatActivity() {
         webView.loadUrl(url)
     }
 
-    /** Pure URL scheme normalization; shared with the upcoming passkey bridge (COK-1.3). */
+    /** Pure URL scheme normalization. */
     private fun normalizeUrl(raw: String): String = when {
         URLUtil.isNetworkUrl(raw) -> raw   // already http(s)
         raw.contains("://") -> raw         // some other scheme — don't double-prefix

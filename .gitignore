@@ -8,3 +8,6 @@
 .externalNativeBuild
 .cxx
 /app/build
+
+# graphify knowledge graph (regenerable)
+graphify-out/
