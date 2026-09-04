@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cookie glyph on the 108dp adaptive-icon canvas; the glyph stays inside the
+     central 66dp safe zone (21..87). The outline is a single subpath: the major
+     arc of the cookie circle (centre 54,54 r 30) joined at its two intersection
+     points with the bite circle (centre 80,28 r 14), so the bite is a real edge
+     cutout instead of an evenOdd hole. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#E0A45E"
+        android:pathData="M66.08,26.54A30,30 0 1 0 81.46,41.92A14,14 0 0 1 66.08,26.54Z" />
+    <path
+        android:fillColor="#4A2A10"
+        android:pathData="M40.8,43a3.2,3.2 0 1,0 6.4,0a3.2,3.2 0 1,0 -6.4,0ZM60.2,49a2.8,2.8 0 1,0 5.6,0a2.8,2.8 0 1,0 -5.6,0ZM43,64a3,3 0 1,0 6,0a3,3 0 1,0 -6,0ZM58.4,69a2.6,2.6 0 1,0 5.2,0a2.6,2.6 0 1,0 -5.2,0ZM50.6,55a2.4,2.4 0 1,0 4.8,0a2.4,2.4 0 1,0 -4.8,0Z" />
+</vector>
