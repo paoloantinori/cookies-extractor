@@ -11,3 +11,4 @@
 
 # graphify knowledge graph (regenerable)
 graphify-out/
+__pycache__/
