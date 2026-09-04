@@ -1,7 +1,6 @@
 package com.cookiesextractor.app
 
 import android.content.Intent
-import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -45,13 +44,11 @@ class MainActivity : AppCompatActivity() {
     private val repo by lazy { BookmarksRepository(this) }
     private var bookmarksDialog: BottomSheetDialog? = null
 
-    // Non-null only between a captured redirect and the next navigation. Never logged or
-    // toasted: it carries the raw authorization code (COK-3 security rule).
+    // Non-null from a captured redirect until the user navigates on purpose (address bar,
+    // bookmark) or a new capture replaces it. Never cleared by page-side navigation: IdP
+    // pages routinely follow the blocked redirect with a fallback load that must not
+    // destroy the one-time code. Never logged or toasted (COK-3 security rule).
     private var lastCapturedRedirect: String? = null
-
-    // The page that produced the capture; onPageStarted keeps the capture while this same
-    // page reloads (login pages self-refresh) and clears it on any different page.
-    private var captureSourcePage: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -93,22 +90,20 @@ class MainActivity : AppCompatActivity() {
             urlField.setText(getString(R.string.default_url))
             webView.loadUrl(getString(R.string.default_url))
         } else {
-            // The authorization code is one-shot: carry a capture across recreates not
-            // covered by configChanges (fontScale/density/locale/process death), along
-            // with its source page so the reload-vs-navigate clearing rule still holds.
-            savedInstanceState.getString(STATE_CAPTURED_REDIRECT)?.let { captured ->
-                setCaptured(captured)
-                captureSourcePage = savedInstanceState.getString(STATE_CAPTURE_SOURCE_PAGE)
-            }
+            // Restore the WebView history (page content itself reloads) and any capture:
+            // the authorization code is one-time and must survive recreates not covered by
+            // configChanges (fontScale/density/locale/process death).
+            webView.restoreState(savedInstanceState)
+            savedInstanceState.getString(STATE_CAPTURED_REDIRECT)?.let { setCaptured(it) }
         }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        lastCapturedRedirect?.let {
-            outState.putString(STATE_CAPTURED_REDIRECT, it)
-            captureSourcePage?.let { page -> outState.putString(STATE_CAPTURE_SOURCE_PAGE, page) }
-        }
+        webView.saveState(outState)
+        // Instance state is shell-dumpable; that narrow exposure of the one-time code is
+        // deliberately accepted over losing the capture on a recreate.
+        lastCapturedRedirect?.let { outState.putString(STATE_CAPTURED_REDIRECT, it) }
     }
 
     override fun onDestroy() {
@@ -149,40 +144,33 @@ class MainActivity : AppCompatActivity() {
      */
     private inner class CapturingWebViewClient : WebViewClient() {
 
-        @Deprecated("Called by factory-frozen API 24/25 WebView implementations; updated WebViews call the WebResourceRequest overload. COK-3 keeps both load paths covered")
-        override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
-            onNavigate(url)
+        @Deprecated("Old framework signature; some WebView builds route loads through it instead of the WebResourceRequest overload. COK-3 keeps both load paths covered")
+        override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
+            if (!RedirectCapture.shouldCapture(url)) return false
+            setCaptured(url)
+            return true
+        }
 
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             // Chromium fires this for iframe navigations too (e.g. ad-SDK intent://
             // fallbacks); only a main-frame redirect carries the authorization code, and an
             // iframe capture would overwrite the real one.
             if (!request.isForMainFrame) return false
-            val uri = request.url
-            if (!RedirectCapture.shouldCaptureScheme(uri.scheme)) return false
-            setCaptured(uri.toString())
-            return true
-        }
-
-        private fun onNavigate(url: String): Boolean {
-            if (!RedirectCapture.shouldCapture(url)) return false
-            setCaptured(url)
-            return true
-        }
-
-        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-            // A blocked redirect never reaches onPageStarted. A reload or meta-refresh of
-            // the SAME page must keep the capture (login pages self-refresh); only a
-            // different page invalidates the code.
-            if (url != captureSourcePage) setCaptured(null)
+            return captureIfRedirect(request)
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             // Fallback for main-frame non-http loads the override path misses. Sub-resource
-            // errors are the common case here, so the guards come before any allocation.
+            // errors are the common case here, so the guard comes before any allocation.
             if (!request.isForMainFrame) return
+            captureIfRedirect(request)
+        }
+
+        private fun captureIfRedirect(request: WebResourceRequest): Boolean {
             val uri = request.url
-            if (RedirectCapture.shouldCaptureScheme(uri.scheme)) setCaptured(uri.toString())
+            if (!RedirectCapture.shouldCaptureScheme(uri.scheme)) return false
+            setCaptured(uri.toString())
+            return true
         }
     }
 
@@ -220,7 +208,6 @@ class MainActivity : AppCompatActivity() {
     /** Single writer for the capture state; keeps the field and the FAB visibility in lock-step. */
     private fun setCaptured(url: String?) {
         lastCapturedRedirect = url
-        captureSourcePage = if (url != null) webView.url else null
         captureFab.visibility = if (url != null) View.VISIBLE else View.GONE
     }
 
@@ -241,6 +228,7 @@ class MainActivity : AppCompatActivity() {
         if (raw.isEmpty()) return
         val url = normalizeUrl(raw)
         if (url != raw) urlField.setText(url) // skip the layout pass when input already had a scheme
+        setCaptured(null) // user-initiated navigation invalidates any held capture
         webView.loadUrl(url)
     }
 
@@ -292,6 +280,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadUrl(url: String) {
+        setCaptured(null) // user-initiated navigation invalidates any held capture
         urlField.setText(url)
         webView.loadUrl(url)
     }
@@ -299,6 +288,5 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "CookieExtractor"
         private const val STATE_CAPTURED_REDIRECT = "captured_redirect"
-        private const val STATE_CAPTURE_SOURCE_PAGE = "capture_source_page"
     }
 }

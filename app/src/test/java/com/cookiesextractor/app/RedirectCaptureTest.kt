@@ -55,6 +55,16 @@ class RedirectCaptureTest {
     }
 
     @Test
+    fun mailtoIsNotCaptured() {
+        assertFalse(RedirectCapture.shouldCapture("mailto:support@vendor.com?subject=Help"))
+    }
+
+    @Test
+    fun telIsNotCaptured() {
+        assertFalse(RedirectCapture.shouldCapture("tel:+393331234567"))
+    }
+
+    @Test
     fun schemelessUrlIsNotCaptured() {
         assertFalse(RedirectCapture.shouldCapture("example.com/path"))
     }
@@ -184,5 +194,26 @@ class RedirectCaptureTest {
     @Test
     fun queryInsideFragmentIsNotTheQuery() {
         assertEquals("urn:x#f?code=1", RedirectCapture.shareText("urn:x#f?code=1"))
+    }
+
+    @Test
+    fun multiByteUtf8SequenceDecodesAsOneCharacter() {
+        assertEquals(
+            "user=José",
+            RedirectCapture.shareText("myapp://cb?user=Jos%C3%A9")
+        )
+    }
+
+    @Test
+    fun invalidUtf8SequenceFallsBackToWholeUrlVerbatim() {
+        assertEquals(
+            "myapp://cb?user=Jos%C3",
+            RedirectCapture.shareText("myapp://cb?user=Jos%C3")
+        )
+    }
+
+    @Test
+    fun signedHexEscapeFallsBackToWholeUrlVerbatim() {
+        assertEquals("urn:x?v=%+5", RedirectCapture.shareText("urn:x?v=%+5"))
     }
 }

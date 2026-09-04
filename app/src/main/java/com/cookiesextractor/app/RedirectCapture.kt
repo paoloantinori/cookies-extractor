@@ -1,6 +1,6 @@
 package com.cookiesextractor.app
 
-import java.net.URI
+import java.nio.ByteBuffer
 
 /**
  * Pure-JVM classification and parsing of OAuth redirect URLs captured from the WebView (COK-3).
@@ -10,14 +10,16 @@ import java.net.URI
 object RedirectCapture {
 
     /**
-     * Schemes the WebView itself can load. about:/data:/blob:/content: are here because the
-     * WebView renders or resolves them natively (internal pages, inlined HTML, generated
-     * files, document links) and they carry no token parameters; intercepting them would
-     * break ordinary browsing. Everything else (urn:, intent:, custom app schemes, file:,
-     * mailto:) cannot produce a page, so its query string would be lost with an error page
-     * unless we capture it.
+     * Schemes the WebView itself can load, plus mailto:/tel: which never carry OAuth data:
+     * letting the WebView fail them restores the pre-capture behavior (its own error page)
+     * instead of a misleading "tokens captured" action. about:/data:/blob:/content: are
+     * here because the WebView renders or resolves them natively (internal pages, inlined
+     * HTML, generated files, document links); intercepting them would break ordinary
+     * browsing. Everything else (urn:, intent:, custom app schemes, file:) cannot produce
+     * a page, so its query string would be lost with an error page unless we capture it.
      */
-    private val loadableSchemes = setOf("http", "https", "about", "data", "blob", "content")
+    private val loadableSchemes =
+        setOf("http", "https", "about", "data", "blob", "content", "mailto", "tel")
 
     /** True iff [url] has a scheme the WebView cannot load itself. */
     fun shouldCapture(url: String): Boolean {
@@ -58,32 +60,37 @@ object RedirectCapture {
     }
 
     /**
-     * RFC 3986 percent-decoding only. Unlike java.net.URLDecoder this treats '+' as a
-     * literal character: query strings are not form bodies, and base64-ish token values
-     * containing '+' must survive intact.
+     * RFC 3986 percent-decoding over raw bytes. Unlike java.net.URLDecoder this treats '+'
+     * as a literal character: query strings are not form bodies, and base64-ish token
+     * values containing '+' must survive intact. Multi-byte UTF-8 sequences decode as one
+     * character each, and any malformed escape or invalid UTF-8 throws so the caller falls
+     * back to the verbatim URL instead of sharing a corrupted value.
      */
     private fun percentDecode(s: String): String {
-        val out = StringBuilder(s.length)
+        fun hexValue(b: Byte): Int = when (b) {
+            in 0x30..0x39 -> b - 0x30
+            in 0x41..0x46 -> b - 0x37
+            in 0x61..0x66 -> b - 0x57
+            else -> throw IllegalArgumentException("not a hex digit")
+        }
+        val src = s.toByteArray(Charsets.UTF_8)
+        val out = ArrayList<Byte>(src.size)
         var i = 0
-        while (i < s.length) {
-            val c = s[i]
-            if (c != '%') {
-                out.append(c)
+        while (i < src.size) {
+            val b = src[i]
+            if (b != '%'.code.toByte()) {
+                out.add(b)
                 i++
                 continue
             }
-            if (i + 2 >= s.length) throw IllegalArgumentException("truncated percent escape")
-            out.append(s.substring(i + 1, i + 3).toInt(16).toChar())
+            if (i + 2 >= src.size) throw IllegalArgumentException("truncated percent escape")
+            out.add(((hexValue(src[i + 1]) shl 4) or hexValue(src[i + 2])).toByte())
             i += 3
         }
-        return out.toString()
+        return Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(out.toByteArray())).toString()
     }
 
     private fun schemeOf(url: String): String? {
-        val parsed = runCatching { URI(url).scheme }.getOrNull()
-        if (parsed != null) return parsed.lowercase()
-        // URI rejects strings that occur in the wild (e.g. the raw characters of
-        // "data:text/html,<x>"), so fall back to the text before the first ':'.
         val colon = url.indexOf(':')
         return if (colon <= 0) null else url.substring(0, colon).lowercase()
     }
