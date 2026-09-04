@@ -1,6 +1,7 @@
 package com.cookiesextractor.app
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -9,6 +10,8 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.webkit.CookieManager
 import android.webkit.URLUtil
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -18,6 +21,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -28,6 +32,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
  *  - COK-1.4: FAB -> extract cookies via CookieManager (empty-state Toast)
  *  - COK-1.5: shareCookies() fires the ACTION_SEND share sheet
  *  - COK-2: bookmarks (save/load/delete) via a bottom sheet
+ *  - COK-3: capture non-http OAuth redirects and share their token parameters
  *
  * Rotation is handled via android:configChanges in the manifest, so the WebView is not
  * destroyed/recreated on orientation change and the loaded page survives.
@@ -36,8 +41,17 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var urlField: EditText
+    private lateinit var captureFab: FloatingActionButton
     private val repo by lazy { BookmarksRepository(this) }
     private var bookmarksDialog: BottomSheetDialog? = null
+
+    // Non-null only between a captured redirect and the next navigation. Never logged or
+    // toasted: it carries the raw authorization code (COK-3 security rule).
+    private var lastCapturedRedirect: String? = null
+
+    // The page that produced the capture; onPageStarted keeps the capture while this same
+    // page reloads (login pages self-refresh) and clears it on any different page.
+    private var captureSourcePage: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,6 +59,7 @@ class MainActivity : AppCompatActivity() {
 
         webView = findViewById(R.id.webview)
         urlField = findViewById(R.id.url_field)
+        captureFab = findViewById(R.id.capture_fab)
         val goButton: Button = findViewById(R.id.go_button)
         val shareFab: FloatingActionButton = findViewById(R.id.share_fab)
         val bookmarksButton: ImageButton = findViewById(R.id.bookmarks_btn)
@@ -63,6 +78,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         shareFab.setOnClickListener { onExtractCookies() }
+        captureFab.setOnClickListener { onShareCapturedRedirect() }
         bookmarksButton.setOnClickListener { showBookmarks() }
 
         // Back button traverses WebView history before exiting the app.
@@ -76,6 +92,22 @@ class MainActivity : AppCompatActivity() {
         if (savedInstanceState == null) {
             urlField.setText(getString(R.string.default_url))
             webView.loadUrl(getString(R.string.default_url))
+        } else {
+            // The authorization code is one-shot: carry a capture across recreates not
+            // covered by configChanges (fontScale/density/locale/process death), along
+            // with its source page so the reload-vs-navigate clearing rule still holds.
+            savedInstanceState.getString(STATE_CAPTURED_REDIRECT)?.let { captured ->
+                setCaptured(captured)
+                captureSourcePage = savedInstanceState.getString(STATE_CAPTURE_SOURCE_PAGE)
+            }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        lastCapturedRedirect?.let {
+            outState.putString(STATE_CAPTURED_REDIRECT, it)
+            captureSourcePage?.let { page -> outState.putString(STATE_CAPTURE_SOURCE_PAGE, page) }
         }
     }
 
@@ -97,7 +129,7 @@ class MainActivity : AppCompatActivity() {
             javaScriptEnabled = true   // PRD §4.3
             domStorageEnabled = true   // PRD §4.3
         }
-        webView.webViewClient = WebViewClient() // keep navigation in-app (PRD §4.2/§4.3)
+        webView.webViewClient = CapturingWebViewClient() // keep navigation in-app (PRD §4.2/§4.3)
 
         // Accept and keep cookies so CookieManager can read them back after login. Third-party
         // cookies are enabled so the WebView stores them and will send the ones scoped to the
@@ -107,6 +139,51 @@ class MainActivity : AppCompatActivity() {
         val cm = CookieManager.getInstance()
         cm.setAcceptCookie(true)
         cm.setAcceptThirdPartyCookies(webView, true)
+    }
+
+    /**
+     * Keeps navigation in-app and captures non-http redirects (COK-3). After a manual OAuth
+     * login the IdP redirects to a scheme the WebView cannot load (typically
+     * urn:ietf:wg:oauth:2.0:oob?code=...); blocking the load here prevents the "Web page not
+     * available" error page and hands the URL to the capture FAB instead.
+     */
+    private inner class CapturingWebViewClient : WebViewClient() {
+
+        @Deprecated("Called by factory-frozen API 24/25 WebView implementations; updated WebViews call the WebResourceRequest overload. COK-3 keeps both load paths covered")
+        override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean =
+            onNavigate(url)
+
+        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            // Chromium fires this for iframe navigations too (e.g. ad-SDK intent://
+            // fallbacks); only a main-frame redirect carries the authorization code, and an
+            // iframe capture would overwrite the real one.
+            if (!request.isForMainFrame) return false
+            val uri = request.url
+            if (!RedirectCapture.shouldCaptureScheme(uri.scheme)) return false
+            setCaptured(uri.toString())
+            return true
+        }
+
+        private fun onNavigate(url: String): Boolean {
+            if (!RedirectCapture.shouldCapture(url)) return false
+            setCaptured(url)
+            return true
+        }
+
+        override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+            // A blocked redirect never reaches onPageStarted. A reload or meta-refresh of
+            // the SAME page must keep the capture (login pages self-refresh); only a
+            // different page invalidates the code.
+            if (url != captureSourcePage) setCaptured(null)
+        }
+
+        override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+            // Fallback for main-frame non-http loads the override path misses. Sub-resource
+            // errors are the common case here, so the guards come before any allocation.
+            if (!request.isForMainFrame) return
+            val uri = request.url
+            if (RedirectCapture.shouldCaptureScheme(uri.scheme)) setCaptured(uri.toString())
+        }
     }
 
     /** Reads the session cookies for the currently loaded URL (PRD §4.4). */
@@ -124,16 +201,39 @@ class MainActivity : AppCompatActivity() {
     private fun extractCookies(): String =
         webView.url?.let { CookieManager.getInstance().getCookie(it) }.orEmpty()
 
+    private fun shareCookies(cookies: String) =
+        shareViaChooser(cookies, R.string.share_preamble, R.string.share_chooser_title)
+
     /**
-     * Shares the extracted cookies via the Android share sheet (ACTION_SEND, text/plain),
-     * wrapped in Intent.createChooser() per PRD §4.5.
+     * Shares the last captured OAuth redirect's parameters (COK-3). The capture stays in
+     * place so the FAB is re-clickable until the next navigation clears it.
      */
-    private fun shareCookies(cookies: String) {
+    private fun onShareCapturedRedirect() {
+        val captured = lastCapturedRedirect ?: return
+        shareViaChooser(
+            RedirectCapture.shareText(captured),
+            R.string.share_tokens_preamble,
+            R.string.share_tokens_chooser_title
+        )
+    }
+
+    /** Single writer for the capture state; keeps the field and the FAB visibility in lock-step. */
+    private fun setCaptured(url: String?) {
+        lastCapturedRedirect = url
+        captureSourcePage = if (url != null) webView.url else null
+        captureFab.visibility = if (url != null) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * Fires the Android share sheet (ACTION_SEND, text/plain) wrapped in Intent.createChooser()
+     * per PRD §4.5.
+     */
+    private fun shareViaChooser(text: String, @StringRes preambleRes: Int, @StringRes titleRes: Int) {
         val share = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, getString(R.string.share_preamble, cookies))
+            putExtra(Intent.EXTRA_TEXT, getString(preambleRes, text))
         }
-        startActivity(Intent.createChooser(share, getString(R.string.share_chooser_title)))
+        startActivity(Intent.createChooser(share, getString(titleRes)))
     }
 
     private fun loadUrlFromField() {
@@ -198,5 +298,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "CookieExtractor"
+        private const val STATE_CAPTURED_REDIRECT = "captured_redirect"
+        private const val STATE_CAPTURE_SOURCE_PAGE = "capture_source_page"
     }
 }

@@ -66,4 +66,16 @@
         android:contentDescription="@string/share_cd"
         app:srcCompat="@android:drawable/ic_menu_share" />
 
+    <!-- COK-3: capture FAB, visible only while a non-http OAuth redirect is held -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/capture_fab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="88dp"
+        android:contentDescription="@string/share_capture_cd"
+        android:visibility="gone"
+        app:srcCompat="@android:drawable/ic_menu_send" />
+
 </FrameLayout>
