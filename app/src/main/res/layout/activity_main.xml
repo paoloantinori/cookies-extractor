@@ -36,6 +36,17 @@
                 android:layout_height="wrap_content"
                 android:text="@string/go" />
 
+            <!-- COK-9: wipe cookies + WebView storage behind a confirm dialog -->
+            <ImageButton
+                android:id="@+id/clear_session_btn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/clear_session_btn_cd"
+                android:minWidth="48dp"
+                android:minHeight="48dp"
+                android:src="@android:drawable/ic_menu_delete" />
+
             <ImageButton
                 android:id="@+id/bookmarks_btn"
                 android:layout_width="wrap_content"

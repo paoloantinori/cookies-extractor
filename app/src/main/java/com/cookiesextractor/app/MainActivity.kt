@@ -11,6 +11,7 @@ import android.webkit.CookieManager
 import android.webkit.URLUtil
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
@@ -21,8 +22,10 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.annotation.StringRes
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 
 /**
@@ -32,6 +35,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
  *  - COK-1.5: shareCookies() fires the ACTION_SEND share sheet
  *  - COK-2: bookmarks (save/load/delete) via a bottom sheet
  *  - COK-3: capture non-http OAuth redirects and share their token parameters
+ *  - COK-9: clear cookies + WebView storage behind a confirm dialog, then reload
  *
  * Rotation is handled via android:configChanges in the manifest, so the WebView is not
  * destroyed/recreated on orientation change and the loaded page survives.
@@ -43,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var captureFab: FloatingActionButton
     private val repo by lazy { BookmarksRepository(this) }
     private var bookmarksDialog: BottomSheetDialog? = null
+    private var clearSessionDialog: AlertDialog? = null
 
     // Held capture: the redirect URL plus the URL of the page that produced it (drives the
     // origin-bound release in onPageFinished). One nullable field so the pair cannot
@@ -66,6 +71,7 @@ class MainActivity : AppCompatActivity() {
         captureFab = findViewById(R.id.capture_fab)
         val goButton: Button = findViewById(R.id.go_button)
         val shareFab: FloatingActionButton = findViewById(R.id.share_fab)
+        val clearSessionButton: ImageButton = findViewById(R.id.clear_session_btn)
         val bookmarksButton: ImageButton = findViewById(R.id.bookmarks_btn)
 
         configureWebView()
@@ -83,6 +89,7 @@ class MainActivity : AppCompatActivity() {
 
         shareFab.setOnClickListener { onExtractCookies() }
         captureFab.setOnClickListener { onShareCapturedRedirect() }
+        clearSessionButton.setOnClickListener { confirmClearSession() }
         bookmarksButton.setOnClickListener { showBookmarks() }
 
         // Back button traverses WebView history before exiting the app; history traversal
@@ -121,9 +128,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        // Dismiss the bookmarks sheet if open — prevents a window leak on config-change
-        // recreates not covered by configChanges (e.g. fontScale/density/locale).
+        // Dismiss the bookmarks sheet and the clear-session dialog if either is open: both
+        // leak their window on config-change recreates not covered by configChanges
+        // (e.g. fontScale/density/locale).
         bookmarksDialog?.dismiss()
+        clearSessionDialog?.dismiss()
         // Release the WebView's renderer/native resources on genuine teardown. Rotation is
         // handled via configChanges, so onDestroy only runs on real finish()/destroy.
         if (::webView.isInitialized) {
@@ -288,6 +297,47 @@ class MainActivity : AppCompatActivity() {
         else -> "https://$raw"             // bare input — assume https
     }
 
+    /**
+     * Confirm-then-wipe of all WebView session state (COK-9). A wedged IdP session (server-side
+     * state that no in-page action can advance) is only cleared by deleting everything; the
+     * reload makes the fresh state visible immediately. Never logs or toasts any wiped value.
+     */
+    private fun confirmClearSession() {
+        clearSessionDialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.clear_session_title)
+            .setMessage(R.string.clear_session_message)
+            .setPositiveButton(R.string.clear_session_confirm) { _, _ -> clearSessionAndReload() }
+            .setNegativeButton(R.string.clear_session_cancel, null)
+            .create()
+            .apply {
+                setOnDismissListener { clearSessionDialog = null }
+                show()
+            }
+    }
+
+    private fun clearSessionAndReload() {
+        // Storage is wiped synchronously (so the wipe lands even if the activity dies before
+        // the cookie callback); page JS still alive in that window could re-persist, which
+        // the reload right after makes visible.
+        WebStorage.getInstance().deleteAllData()
+        val url = currentNetworkUrl()
+        // removeAllCookies covers session cookies too (they are a subset); the callback can
+        // arrive after onDestroy, so touch the UI only while the activity lives.
+        CookieManager.getInstance().removeAllCookies {
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                setCaptured(null) // the wipe starts every login over, a held capture included
+                Toast.makeText(this, R.string.toast_session_cleared, Toast.LENGTH_SHORT).show()
+                // Reload only if the user did not navigate elsewhere while the wipe ran.
+                if (url != null && webView.url == url) navigate(url)
+            }
+        }
+    }
+
+    /** The WebView's current URL when it is a loadable network page, else null. */
+    private fun currentNetworkUrl(): String? =
+        webView.url?.takeIf { URLUtil.isNetworkUrl(it) }
+
     /** Shows the bookmarks bottom sheet: add current page, tap to load, delete. */
     private fun showBookmarks() {
         val dialog = BottomSheetDialog(this)
@@ -312,8 +362,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         addCurrent.setOnClickListener {
-            val url = webView.url
-            if (url != null && URLUtil.isNetworkUrl(url)) {
+            val url = currentNetworkUrl()
+            if (url != null) {
                 val title = webView.title?.takeIf { it.isNotBlank() } ?: Uri.parse(url).host.orEmpty()
                 render(repo.add(Bookmark(title, url)))
             } else {

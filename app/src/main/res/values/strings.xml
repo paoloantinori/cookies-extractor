@@ -14,6 +14,12 @@
     <string name="toast_no_page">No page to bookmark.</string>
     <string name="bm_delete_cd">Delete bookmark</string>
     <string name="toast_scheme_not_loadable">The WebView cannot load this URL scheme.</string>
+    <string name="clear_session_btn_cd">Clear cookies and session storage</string>
+    <string name="clear_session_title">Clear session?</string>
+    <string name="clear_session_message">All cookies and WebView storage will be deleted and the current page reloaded. Any login in progress starts over.</string>
+    <string name="clear_session_confirm">Clear</string>
+    <string name="clear_session_cancel">Cancel</string>
+    <string name="toast_session_cleared">Session cleared.</string>
     <string name="share_capture_cd">Share captured OAuth tokens</string>
     <string name="share_tokens_preamble">Here are the captured OAuth tokens:\n\n%1$s</string>
     <string name="share_tokens_chooser_title">Share OAuth tokens</string>
