@@ -1,5 +1,6 @@
 package com.cookiesextractor.app
 
+import android.app.Dialog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
@@ -36,6 +37,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.snackbar.Snackbar
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.Inet4Address
@@ -54,6 +56,8 @@ import org.json.JSONObject
  *  - COK-3: capture non-http OAuth redirects and share their token parameters
  *  - COK-9: clear cookies + WebView storage behind a confirm dialog, then reload
  *  - COK-10: token-gated HTTP debug channel (developer options) for external control
+ *  - COK-11: Snackbar notice when an OAuth capture lands (the flow's silent terminal state)
+ *  - COK-12: debug /tap and /screenshot reach the topmost open dialog, not just the activity
  *
  * Rotation is handled via android:configChanges in the manifest, so the WebView is not
  * destroyed/recreated on orientation change and the loaded page survives.
@@ -64,9 +68,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var urlField: EditText
     private lateinit var captureFab: FloatingActionButton
     private val repo by lazy { BookmarksRepository(this) }
-    private var bookmarksDialog: BottomSheetDialog? = null
-    private var clearSessionDialog: AlertDialog? = null
     private var devDialog: AlertDialog? = null
+
+    // COK-12: every open dialog, last-shown last. Dialogs are separate windows, so the
+    // debug channel's /tap and /screenshot must target the topmost one instead of the
+    // activity window. showTracked() is the only entry point, so add/remove stay paired.
+    private val openDialogs = ArrayDeque<Dialog>()
 
     // Debug channel (COK-10): null while disabled. Its token is regenerated at every
     // enable and never persisted; the developer dialog is the only place it is shown.
@@ -140,7 +147,7 @@ class MainActivity : AppCompatActivity() {
             // the authorization code is one-time and must survive recreates not covered by
             // configChanges (fontScale/density/locale/process death).
             webView.restoreState(savedInstanceState)
-            savedInstanceState.getString(STATE_CAPTURED_REDIRECT)?.let { setCaptured(it) }
+            savedInstanceState.getString(STATE_CAPTURED_REDIRECT)?.let { setCaptured(it, notify = false) }
         }
     }
 
@@ -153,12 +160,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        // Dismiss the bookmarks sheet and the clear-session dialog if either is open: both
-        // leak their window on config-change recreates not covered by configChanges
-        // (e.g. fontScale/density/locale).
-        bookmarksDialog?.dismiss()
-        clearSessionDialog?.dismiss()
-        devDialog?.dismiss()
+        // Dismiss any open dialog (bookmarks sheet, confirm, developer): each leaks its
+        // window on config-change recreates not covered by configChanges
+        // (e.g. fontScale/density/locale). Copy first: each dismiss mutates the deque.
+        openDialogs.toList().forEach { it.dismiss() }
         debugChannel?.stop()
         // Release the WebView's renderer/native resources on genuine teardown. Rotation is
         // handled via configChanges, so onDestroy only runs on real finish()/destroy.
@@ -289,10 +294,27 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    /** Single writer for the capture state; keeps the field and the FAB visibility in lock-step. */
-    private fun setCaptured(url: String?) {
+    /**
+     * Single writer for the capture state; keeps the field and the FAB visibility in
+     * lock-step. [notify] is false on restore-from-state, where a held capture is old news.
+     */
+    private fun setCaptured(url: String?, notify: Boolean = true) {
+        val isNewCapture = notify && url != null && capture?.url != url
         capture = url?.let { Capture(it, webView.url) }
         captureFab.visibility = if (url != null) View.VISIBLE else View.GONE
+        if (isNewCapture) showCaptureNotice()
+    }
+
+    /**
+     * End-of-flow signal (COK-11): a captured redirect leaves the page frozen on the last
+     * committed screen, which reads as a stall; this says the opposite. Static text only:
+     * the captured URL (the code) never appears here. Accepted edge: while a dialog is
+     * open the notice renders behind that window; the FAB remains as the durable signal.
+     */
+    private fun showCaptureNotice() {
+        Snackbar.make(webView, R.string.capture_notice, Snackbar.LENGTH_LONG)
+            .setAction(R.string.capture_notice_share) { onShareCapturedRedirect() }
+            .show()
     }
 
     /** All programmatic loadUrl navigation funnels here so the capture is released exactly once. */
@@ -343,16 +365,13 @@ class MainActivity : AppCompatActivity() {
      * reload makes the fresh state visible immediately. Never logs or toasts any wiped value.
      */
     private fun confirmClearSession() {
-        clearSessionDialog = MaterialAlertDialogBuilder(this)
+        MaterialAlertDialogBuilder(this)
             .setTitle(R.string.clear_session_title)
             .setMessage(R.string.clear_session_message)
             .setPositiveButton(R.string.clear_session_confirm) { _, _ -> clearSessionAndReload() }
             .setNegativeButton(R.string.clear_session_cancel, null)
             .create()
-            .apply {
-                setOnDismissListener { clearSessionDialog = null }
-                show()
-            }
+            .also { showTracked(it) }
     }
 
     private fun clearSessionAndReload() {
@@ -378,6 +397,16 @@ class MainActivity : AppCompatActivity() {
     private fun currentNetworkUrl(): String? =
         webView.url?.takeIf { URLUtil.isNetworkUrl(it) }
 
+    /** Shows [dialog] tracked in [openDialogs]; [onDismiss] runs first on dismissal. */
+    private fun showTracked(dialog: Dialog, onDismiss: () -> Unit = {}) {
+        dialog.setOnDismissListener {
+            onDismiss()
+            openDialogs.remove(dialog)
+        }
+        dialog.show()
+        openDialogs.addLast(dialog)
+    }
+
     // ---- Debug channel (COK-10) ----
 
     /** Developer dialog: channel state, the URL+token to use, and the enable/disable toggle. */
@@ -395,10 +424,7 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.dev_close, null)
             .create()
-            .apply {
-                setOnDismissListener { devDialog = null }
-                show()
-            }
+            .also { showTracked(it) { devDialog = null } }
     }
 
     private fun enableDebugChannel() {
@@ -529,9 +555,14 @@ class MainActivity : AppCompatActivity() {
             future.complete(null) // PixelCopy needs API 26; debug builds target newer devices
             return
         }
-        val decor = window.decorView
+        // Copy the topmost dialog when one is showing: /tap can reach dialogs, so
+        // /screenshot must show them too (dialogs are separate windows). A dialog caught
+        // before its first layout pass has no size yet; fall back to the activity window.
+        val targetWindow = openDialogs.lastOrNull { it.isShowing }?.window
+            ?.takeIf { it.decorView.width > 0 } ?: window
+        val decor = targetWindow.decorView
         val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
-        PixelCopy.request(window, bitmap, { result ->
+        PixelCopy.request(targetWindow, bitmap, { result ->
             val bytes =
                 if (result == PixelCopy.SUCCESS) {
                     val out = ByteArrayOutputStream()
@@ -545,14 +576,20 @@ class MainActivity : AppCompatActivity() {
         }, Handler(Looper.getMainLooper()))
     }
 
-    /** Dispatches on the window (not just the WebView) so coordinates match /screenshot. */
+    /**
+     * Dispatches on the topmost open dialog when one is showing (dialogs are separate
+     * windows the activity never sees), else on the activity window. Screen coordinates:
+     * a dialog's decor view is laid out in the same space as /screenshot's.
+     */
     private fun dispatchTap(x: Float, y: Float) {
+        val target = openDialogs.lastOrNull { it.isShowing }?.window?.decorView
+            ?: window.decorView
         val now = SystemClock.uptimeMillis()
         listOf(
             MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0),
             MotionEvent.obtain(now, now + 60, MotionEvent.ACTION_UP, x, y, 0),
         ).forEach {
-            window.decorView.dispatchTouchEvent(it)
+            target.dispatchTouchEvent(it)
             it.recycle()
         }
     }
@@ -599,11 +636,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        dialog.setOnDismissListener { bookmarksDialog = null }
         dialog.setContentView(sheet)
         render(repo.load())
-        bookmarksDialog = dialog
-        dialog.show()
+        showTracked(dialog)
     }
 
     private fun loadUrl(url: String) {

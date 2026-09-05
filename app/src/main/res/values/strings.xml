@@ -29,6 +29,8 @@
     <string name="dev_close">Close</string>
     <string name="dev_port_busy">The debug port is busy.</string>
     <string name="share_capture_cd">Share captured OAuth tokens</string>
+    <string name="capture_notice">Authorization captured. Tap Share to send the code.</string>
+    <string name="capture_notice_share">Share</string>
     <string name="share_tokens_preamble">Here are the captured OAuth tokens:\n\n%1$s</string>
     <string name="share_tokens_chooser_title">Share OAuth tokens</string>
 </resources>

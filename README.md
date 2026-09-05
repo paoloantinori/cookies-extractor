@@ -16,7 +16,8 @@ exactly like in a normal browser, then tap one button to pull the session cookie
 - **Bookmarks**: save the current page, tap to reload it later, swipe/delete to remove.
 - **OAuth redirect capture**: non-http OAuth redirects (e.g. `urn:ietf:wg:oauth:2.0:oob?code=…`)
   are caught before the WebView shows an error page, and their token parameters are shareable
-  like cookies.
+  like cookies. A Snackbar announces the capture, so the login's silent terminal state is
+  no longer mistaken for a stall.
 - **Session reset** (trash button): wipes cookies + WebView storage behind a confirm and
   reloads, for when a login flow gets wedged and needs a from-zero restart.
 - **Debug channel** (developer options): opt-in HTTP endpoint to pilot the app from a laptop
@@ -71,11 +72,11 @@ and `/navigate` accepts http(s) URLs only. Endpoints (GET):
 | `/status` | JSON: current URL, page title, whether a capture is held |
 | `/navigate?url=` | loads the URL in the WebView |
 | `/text` | the page's rendered text (`document.body.innerText`) |
-| `/screenshot` | JPEG of the activity |
+| `/screenshot` | JPEG of the topmost window (dialog when one is open, else the activity) |
 | `/capture` | the captured OAuth parameters (404 if none held) |
 | `/clear` | wipes cookies + storage and reloads (same as the trash button) |
 | `/console?n=50` | the last N page-console lines (recorded only while enabled) |
-| `/tap?x=&y=` | dispatches a touch to the WebView |
+| `/tap?x=&y=` | dispatches a touch to the topmost window (dialog-aware) |
 
 `/capture` and `/screenshot` expose session data by design: keep the channel disabled
 except while testing, and only on networks you trust.
