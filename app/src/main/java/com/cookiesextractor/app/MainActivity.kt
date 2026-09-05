@@ -1,14 +1,23 @@
 package com.cookiesextractor.app
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
+import android.view.MotionEvent
+import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.URLUtil
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebStorage
@@ -27,6 +36,14 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import java.net.Inet4Address
+import java.net.NetworkInterface
+import java.security.SecureRandom
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
+import org.json.JSONObject
 
 /**
  * Single-screen host.
@@ -36,6 +53,7 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
  *  - COK-2: bookmarks (save/load/delete) via a bottom sheet
  *  - COK-3: capture non-http OAuth redirects and share their token parameters
  *  - COK-9: clear cookies + WebView storage behind a confirm dialog, then reload
+ *  - COK-10: token-gated HTTP debug channel (developer options) for external control
  *
  * Rotation is handled via android:configChanges in the manifest, so the WebView is not
  * destroyed/recreated on orientation change and the loaded page survives.
@@ -48,6 +66,11 @@ class MainActivity : AppCompatActivity() {
     private val repo by lazy { BookmarksRepository(this) }
     private var bookmarksDialog: BottomSheetDialog? = null
     private var clearSessionDialog: AlertDialog? = null
+    private var devDialog: AlertDialog? = null
+
+    // Debug channel (COK-10): null while disabled. Its token is regenerated at every
+    // enable and never persisted; the developer dialog is the only place it is shown.
+    @Volatile private var debugChannel: DebugChannelServer? = null
 
     // Held capture: the redirect URL plus the URL of the page that produced it (drives the
     // origin-bound release in onPageFinished). One nullable field so the pair cannot
@@ -71,6 +94,7 @@ class MainActivity : AppCompatActivity() {
         captureFab = findViewById(R.id.capture_fab)
         val goButton: Button = findViewById(R.id.go_button)
         val shareFab: FloatingActionButton = findViewById(R.id.share_fab)
+        val devButton: ImageButton = findViewById(R.id.dev_btn)
         val clearSessionButton: ImageButton = findViewById(R.id.clear_session_btn)
         val bookmarksButton: ImageButton = findViewById(R.id.bookmarks_btn)
 
@@ -89,6 +113,7 @@ class MainActivity : AppCompatActivity() {
 
         shareFab.setOnClickListener { onExtractCookies() }
         captureFab.setOnClickListener { onShareCapturedRedirect() }
+        devButton.setOnClickListener { showDeveloperOptions() }
         clearSessionButton.setOnClickListener { confirmClearSession() }
         bookmarksButton.setOnClickListener { showBookmarks() }
 
@@ -133,6 +158,8 @@ class MainActivity : AppCompatActivity() {
         // (e.g. fontScale/density/locale).
         bookmarksDialog?.dismiss()
         clearSessionDialog?.dismiss()
+        devDialog?.dismiss()
+        debugChannel?.stop()
         // Release the WebView's renderer/native resources on genuine teardown. Rotation is
         // handled via configChanges, so onDestroy only runs on real finish()/destroy.
         if (::webView.isInitialized) {
@@ -148,6 +175,19 @@ class MainActivity : AppCompatActivity() {
             domStorageEnabled = true   // PRD §4.3
         }
         webView.webViewClient = CapturingWebViewClient() // keep navigation in-app (PRD §4.2/§4.3)
+
+        // COK-10: while the debug channel is enabled, keep the page console in the channel's
+        // ring buffer for /console. Console lines are the page's own logging and can echo
+        // page data, so nothing is recorded while the channel is off.
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                val channel = debugChannel ?: return false
+                channel.console.add(
+                    "[${msg.messageLevel()}] ${msg.message()} @ ${msg.sourceId()}:${msg.lineNumber()}"
+                )
+                return true
+            }
+        }
 
         // Accept and keep cookies so CookieManager can read them back after login. Third-party
         // cookies are enabled so the WebView stores them and will send the ones scoped to the
@@ -338,6 +378,194 @@ class MainActivity : AppCompatActivity() {
     private fun currentNetworkUrl(): String? =
         webView.url?.takeIf { URLUtil.isNetworkUrl(it) }
 
+    // ---- Debug channel (COK-10) ----
+
+    /** Developer dialog: channel state, the URL+token to use, and the enable/disable toggle. */
+    private fun showDeveloperOptions() {
+        devDialog?.dismiss()
+        val channel = debugChannel
+        val message =
+            if (channel != null) getString(R.string.dev_status_on_fmt, lanIp() ?: "?", channel.boundPort, channel.token)
+            else getString(R.string.dev_status_off)
+        devDialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.dev_title)
+            .setMessage(message)
+            .setPositiveButton(if (channel != null) R.string.dev_disable else R.string.dev_enable) { _, _ ->
+                if (channel != null) disableDebugChannel() else enableDebugChannel()
+            }
+            .setNegativeButton(R.string.dev_close, null)
+            .create()
+            .apply {
+                setOnDismissListener { devDialog = null }
+                show()
+            }
+    }
+
+    private fun enableDebugChannel() {
+        val bytes = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val token = bytes.joinToString("") { "%02x".format(it) }
+        val channel = DebugChannelServer(DEBUG_PORT, token, lanIp(), ::routeDebugRequest)
+        try {
+            channel.start()
+        } catch (e: IOException) {
+            Toast.makeText(this, R.string.dev_port_busy, Toast.LENGTH_SHORT).show()
+            return
+        }
+        debugChannel = channel
+        showDeveloperOptions() // re-render with the URL + token to use
+    }
+
+    private fun disableDebugChannel() {
+        debugChannel?.stop()
+        debugChannel = null
+    }
+
+    /**
+     * Maps one authorized debug request to a response (COK-10). The parser only produces
+     * GETs. UI-touching endpoints bridge to the main thread with a timeout; a timeout or a
+     * dead activity yields 503. This is a developer channel: /capture hands out the captured
+     * OAuth parameters and /screenshot the rendered screen, both gated behind the token.
+     */
+    private fun routeDebugRequest(request: DebugHttp.Request): DebugChannelServer.Response {
+        return when (request.path) {
+            "/status" -> withUi<String>(3000) { f -> f.complete(statusJson()) }
+                ?.let { DebugChannelServer.Response.json(it) } ?: serviceUnavailable()
+            "/navigate" -> {
+                val url = normalizeUrl(request.query["url"].orEmpty())
+                if (url.isEmpty()) {
+                    return DebugChannelServer.Response.text(400, "Bad Request", "missing url\r\n")
+                }
+                if (!URLUtil.isNetworkUrl(url)) {
+                    // network-only on purpose: file:// and friends are not a navigation
+                    // target for a remote pilot, and a capture-scheme URL would land in the
+                    // capture path and overwrite a genuine held code.
+                    return DebugChannelServer.Response.text(400, "Bad Request", "only http(s) urls\r\n")
+                }
+                if (!withUiSync(3000) { loadUrl(url) }) return serviceUnavailable()
+                DebugChannelServer.Response.ok("navigating\r\n")
+            }
+            "/text" -> {
+                val encoded = withUi<String>(5000) { f ->
+                    webView.evaluateJavascript("(document.body && document.body.innerText) || ''") { r ->
+                        f.complete(r)
+                    }
+                } ?: return serviceUnavailable()
+                DebugChannelServer.Response.ok(DebugHttp.jsonUnescape(encoded) ?: encoded)
+            }
+            "/screenshot" -> {
+                val jpeg = withUi<ByteArray>(8000) { f -> completeWithScreenshot(f) } ?: return serviceUnavailable()
+                DebugChannelServer.Response(200, "OK", "image/jpeg", jpeg)
+            }
+            "/capture" -> {
+                val held = withUi<String>(3000) { f -> f.complete(capture?.url) } ?: return serviceUnavailable()
+                if (held == null) return DebugChannelServer.Response.text(404, "Not Found", "no capture\r\n")
+                DebugChannelServer.Response.ok(RedirectCapture.shareText(held) + "\r\n")
+            }
+            "/clear" -> {
+                if (!withUiSync(3000) { clearSessionAndReload() }) return serviceUnavailable()
+                DebugChannelServer.Response.ok("clearing\r\n")
+            }
+            "/console" -> {
+                val n = request.query["n"]?.toIntOrNull()?.coerceIn(1, DebugChannelServer.MAX_CONSOLE_LINES) ?: 50
+                val channel = debugChannel ?: return serviceUnavailable()
+                DebugChannelServer.Response.ok(channel.console.latest(n).joinToString("\n") + "\n")
+            }
+            "/tap" -> {
+                val x = request.query["x"]?.toFloatOrNull()
+                val y = request.query["y"]?.toFloatOrNull()
+                if (x == null || y == null) {
+                    return DebugChannelServer.Response.text(400, "Bad Request", "x and y required\r\n")
+                }
+                if (!withUiSync(3000) { dispatchTap(x, y) }) return serviceUnavailable()
+                DebugChannelServer.Response.ok("tapped\r\n")
+            }
+            else -> DebugChannelServer.Response.text(404, "Not Found", "unknown endpoint\r\n")
+        }
+    }
+
+    /**
+     * Runs [block] on the UI thread; the block owns its [CompletableFuture] so both sync
+     * values and async WebView results work. Null on timeout, dead activity, or throw.
+     */
+    private fun <T> withUi(timeoutMs: Long, block: (CompletableFuture<T?>) -> Unit): T? {
+        val future = CompletableFuture<T?>()
+        runOnUiThread {
+            if (isFinishing || isDestroyed) future.complete(null)
+            else try {
+                block(future)
+            } catch (e: Exception) {
+                future.complete(null)
+            }
+        }
+        return try {
+            future.get(timeoutMs, TimeUnit.MILLISECONDS)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Fire-and-forget UI action; false when it did not run cleanly within [timeoutMs]. */
+    private fun withUiSync(timeoutMs: Long, action: () -> Unit): Boolean =
+        withUi<Boolean>(timeoutMs) { f ->
+            f.complete(runCatching(action)
+                .onFailure { Log.w(TAG, "debug ui action failed: ${it.javaClass.simpleName}") }
+                .isSuccess)
+        } == true
+
+    private fun serviceUnavailable(): DebugChannelServer.Response =
+        DebugChannelServer.Response.text(503, "Service Unavailable", "ui unavailable\r\n")
+
+    /** Must run on the UI thread (called through [withUi]). */
+    private fun statusJson(): String = JSONObject().apply {
+        put("url", webView.url ?: "")
+        put("title", webView.title ?: "")
+        put("capture_held", capture != null)
+        put("debug_port", debugChannel?.boundPort ?: 0)
+    }.toString()
+
+    /** Renders the activity into a JPEG and completes [future] with it (or null). */
+    private fun completeWithScreenshot(future: CompletableFuture<ByteArray?>) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            future.complete(null) // PixelCopy needs API 26; debug builds target newer devices
+            return
+        }
+        val decor = window.decorView
+        val bitmap = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
+        PixelCopy.request(window, bitmap, { result ->
+            val bytes =
+                if (result == PixelCopy.SUCCESS) {
+                    val out = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 70, out)
+                    out.toByteArray()
+                } else {
+                    null
+                }
+            bitmap.recycle()
+            future.complete(bytes)
+        }, Handler(Looper.getMainLooper()))
+    }
+
+    /** Dispatches on the window (not just the WebView) so coordinates match /screenshot. */
+    private fun dispatchTap(x: Float, y: Float) {
+        val now = SystemClock.uptimeMillis()
+        listOf(
+            MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0),
+            MotionEvent.obtain(now, now + 60, MotionEvent.ACTION_UP, x, y, 0),
+        ).forEach {
+            window.decorView.dispatchTouchEvent(it)
+            it.recycle()
+        }
+    }
+
+    /** First site-local IPv4 of this device, for the URL shown in the developer dialog. */
+    private fun lanIp(): String? = runCatching {
+        NetworkInterface.getNetworkInterfaces().asSequence()
+            .filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.asSequence() }
+            .firstOrNull { it is Inet4Address && it.isSiteLocalAddress }
+            ?.hostAddress
+    }.getOrNull()
+
     /** Shows the bookmarks bottom sheet: add current page, tap to load, delete. */
     private fun showBookmarks() {
         val dialog = BottomSheetDialog(this)
@@ -387,6 +615,7 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "CookieExtractor"
+        private const val DEBUG_PORT = 8777
         private const val STATE_CAPTURED_REDIRECT = "captured_redirect"
     }
 }

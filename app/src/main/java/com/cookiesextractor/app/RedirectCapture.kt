@@ -94,9 +94,10 @@ object RedirectCapture {
      * a malformed escape or invalid UTF-8 throws (IllegalArgumentException or
      * CharacterCodingException) so the caller falls back to the verbatim URL instead of
      * sharing a corrupted value. Unlike java.net.URLDecoder, failures are limited to the
-     * two designed exception types, never a blanket catch.
+     * two designed exception types, never a blanket catch. Internal: also the decoder for
+     * DebugHttp query components, which are specified the same way.
      */
-    private fun percentDecode(s: String): String {
+    internal fun percentDecode(s: String): String {
         val src = s.toByteArray(Charsets.UTF_8)
         val out = ArrayList<Byte>(src.size)
         var i = 0

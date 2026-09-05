@@ -14,6 +14,13 @@ exactly like in a normal browser, then tap one button to pull the session cookie
 - **FAB** → extracts all cookies for the loaded domain via `CookieManager` and sends them
   through the Android **share sheet** (messaging apps, clipboard, etc.).
 - **Bookmarks**: save the current page, tap to reload it later, swipe/delete to remove.
+- **OAuth redirect capture**: non-http OAuth redirects (e.g. `urn:ietf:wg:oauth:2.0:oob?code=…`)
+  are caught before the WebView shows an error page, and their token parameters are shareable
+  like cookies.
+- **Session reset** (trash button): wipes cookies + WebView storage behind a confirm and
+  reloads, for when a login flow gets wedged and needs a from-zero restart.
+- **Debug channel** (developer options): opt-in HTTP endpoint to pilot the app from a laptop
+  (see below).
 
 ## What it does NOT do
 - **Passkeys / WebAuthn for third-party sites are not supported.** Android's security model
@@ -46,12 +53,32 @@ Internal / developer tool; sideloaded (not published to Google Play).
 
 ## Project layout
 - `app/src/main/java/com/cookiesextractor/app/`: Kotlin source (`MainActivity`,
-  `RedirectCapture`, `BookmarksRepository`, `Bookmark`).
+  `RedirectCapture`, `BookmarksRepository`, `Bookmark`, `DebugHttp`, `DebugChannel`).
 - `app/src/main/res/`: layouts, strings, themes, launcher icon.
 - `tools/gen_icon.py`: regenerates the ten legacy launcher PNGs (committed bytes are the
   Pillow output).
 - `PRD.md`: product requirements (including the passkey limitation).
 - `backlog/`: task tracking (Backlog.md).
+
+## Debug channel
+Off by default. Enable it from the developer-options (wrench) button: the dialog shows the
+URL (`http://<phone-ip>:8777`) and a per-enable random token. Every request must carry it
+(`Authorization: Bearer <token>` or `?token=`); the server binds the phone's LAN address,
+and `/navigate` accepts http(s) URLs only. Endpoints (GET):
+
+| endpoint | returns / does |
+|---|---|
+| `/status` | JSON: current URL, page title, whether a capture is held |
+| `/navigate?url=` | loads the URL in the WebView |
+| `/text` | the page's rendered text (`document.body.innerText`) |
+| `/screenshot` | JPEG of the activity |
+| `/capture` | the captured OAuth parameters (404 if none held) |
+| `/clear` | wipes cookies + storage and reloads (same as the trash button) |
+| `/console?n=50` | the last N page-console lines (recorded only while enabled) |
+| `/tap?x=&y=` | dispatches a touch to the WebView |
+
+`/capture` and `/screenshot` expose session data by design: keep the channel disabled
+except while testing, and only on networks you trust.
 
 ## Security note
 Extracted cookies **are** session credentials — anyone holding them can impersonate your

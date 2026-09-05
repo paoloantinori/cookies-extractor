@@ -20,6 +20,14 @@
     <string name="clear_session_confirm">Clear</string>
     <string name="clear_session_cancel">Cancel</string>
     <string name="toast_session_cleared">Session cleared.</string>
+    <string name="dev_btn_cd">Developer options: debug channel</string>
+    <string name="dev_title">Developer options</string>
+    <string name="dev_status_on_fmt">Debug channel: ON\n\nhttp://%1$s:%2$d\n\nToken: %3$s\n\nEvery request must carry it (Authorization: Bearer or ?token=).</string>
+    <string name="dev_status_off">Debug channel: OFF.\n\nEnabling starts a local HTTP server that can read this app\'s pages and captured tokens. Enable it only on networks you trust.</string>
+    <string name="dev_enable">Enable</string>
+    <string name="dev_disable">Disable</string>
+    <string name="dev_close">Close</string>
+    <string name="dev_port_busy">The debug port is busy.</string>
     <string name="share_capture_cd">Share captured OAuth tokens</string>
     <string name="share_tokens_preamble">Here are the captured OAuth tokens:\n\n%1$s</string>
     <string name="share_tokens_chooser_title">Share OAuth tokens</string>
