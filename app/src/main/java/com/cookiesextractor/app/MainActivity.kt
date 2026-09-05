@@ -162,6 +162,9 @@ class MainActivity : AppCompatActivity() {
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             // Fallback for main-frame non-http loads the override path misses. Sub-resource
             // errors are the common case here, so the guard comes before any allocation.
+            // Deliberately no navigation recovery: goBack() here races the error-page commit
+            // (this callback runs before it in Chromium) and about:blank desyncs the address
+            // bar; the stock error page on this rare path is the safer residual (COK-5).
             if (!request.isForMainFrame) return
             captureIfRedirect(request)
         }

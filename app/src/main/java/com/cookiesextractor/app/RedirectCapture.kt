@@ -17,6 +17,9 @@ object RedirectCapture {
      * HTML, generated files, document links); intercepting them would break ordinary
      * browsing. Everything else (urn:, intent:, custom app schemes, file:) cannot produce
      * a page, so its query string would be lost with an error page unless we capture it.
+     * javascript: is classified as capturable but is unreachable at runtime: Blink consumes
+     * javascript: URLs in the renderer before any WebViewClient callback fires (the test
+     * pins that dead classification on purpose).
      */
     private val loadableSchemes =
         setOf("http", "https", "about", "data", "blob", "content", "mailto", "tel")
@@ -67,12 +70,6 @@ object RedirectCapture {
      * back to the verbatim URL instead of sharing a corrupted value.
      */
     private fun percentDecode(s: String): String {
-        fun hexValue(b: Byte): Int = when (b) {
-            in 0x30..0x39 -> b - 0x30
-            in 0x41..0x46 -> b - 0x37
-            in 0x61..0x66 -> b - 0x57
-            else -> throw IllegalArgumentException("not a hex digit")
-        }
         val src = s.toByteArray(Charsets.UTF_8)
         val out = ArrayList<Byte>(src.size)
         var i = 0
@@ -84,7 +81,10 @@ object RedirectCapture {
                 continue
             }
             if (i + 2 >= src.size) throw IllegalArgumentException("truncated percent escape")
-            out.add(((hexValue(src[i + 1]) shl 4) or hexValue(src[i + 2])).toByte())
+            val hi = Character.digit((src[i + 1].toInt() and 0xFF).toChar(), 16)
+            val lo = Character.digit((src[i + 2].toInt() and 0xFF).toChar(), 16)
+            if (hi < 0 || lo < 0) throw IllegalArgumentException("not a hex digit")
+            out.add(((hi shl 4) or lo).toByte())
             i += 3
         }
         return Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(out.toByteArray())).toString()
