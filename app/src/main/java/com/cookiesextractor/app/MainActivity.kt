@@ -44,11 +44,18 @@ class MainActivity : AppCompatActivity() {
     private val repo by lazy { BookmarksRepository(this) }
     private var bookmarksDialog: BottomSheetDialog? = null
 
-    // Non-null from a captured redirect until the user navigates on purpose (address bar,
-    // bookmark) or a new capture replaces it. Never cleared by page-side navigation: IdP
-    // pages routinely follow the blocked redirect with a fallback load that must not
-    // destroy the one-time code. Never logged or toasted (COK-3 security rule).
-    private var lastCapturedRedirect: String? = null
+    // Held capture: the redirect URL plus the URL of the page that produced it (drives the
+    // origin-bound release in onPageFinished). One nullable field so the pair cannot
+    // desync. Kept from a capture until the user navigates on purpose (address bar,
+    // bookmark, back press), a page settles on a different site, or a new capture replaces
+    // it. Never logged or toasted (COK-3 security rule).
+    private data class Capture(val url: String, val originUrl: String?)
+
+    private var capture: Capture? = null
+
+    // The URL the address bar last showed because the app put it there; a field holding
+    // anything else is an un-submitted draft that onPageFinished must not clobber.
+    private var syncedUrl: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,16 +85,23 @@ class MainActivity : AppCompatActivity() {
         captureFab.setOnClickListener { onShareCapturedRedirect() }
         bookmarksButton.setOnClickListener { showBookmarks() }
 
-        // Back button traverses WebView history before exiting the app.
+        // Back button traverses WebView history before exiting the app; history traversal
+        // is user-purposed navigation, so any held capture is released (COK-7).
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (webView.canGoBack()) webView.goBack() else finish()
+                if (webView.canGoBack()) {
+                    setCaptured(null)
+                    webView.goBack()
+                } else {
+                    finish()
+                }
             }
         })
 
         // Cold start: load the default URL so the address bar and WebView stay in sync.
         if (savedInstanceState == null) {
             urlField.setText(getString(R.string.default_url))
+            syncedUrl = getString(R.string.default_url)
             webView.loadUrl(getString(R.string.default_url))
         } else {
             // Restore the WebView history (page content itself reloads) and any capture:
@@ -103,7 +117,7 @@ class MainActivity : AppCompatActivity() {
         webView.saveState(outState)
         // Instance state is shell-dumpable; that narrow exposure of the one-time code is
         // deliberately accepted over losing the capture on a recreate.
-        lastCapturedRedirect?.let { outState.putString(STATE_CAPTURED_REDIRECT, it) }
+        capture?.let { outState.putString(STATE_CAPTURED_REDIRECT, it.url) }
     }
 
     override fun onDestroy() {
@@ -152,6 +166,31 @@ class MainActivity : AppCompatActivity() {
             return captureIfRedirect(request)
         }
 
+        override fun onPageFinished(view: WebView, url: String) {
+            // Keep the address bar honest across link/JS/redirect navigation, but never
+            // clobber an un-submitted draft (only sync a field still showing the last
+            // app-written value) and never write a non-http URL: an error-page echo of a
+            // captured redirect carries the code.
+            if (URLUtil.isNetworkUrl(url) && !urlField.hasFocus() &&
+                urlField.text.toString() == (syncedUrl ?: "")
+            ) {
+                urlField.setText(url)
+                syncedUrl = url
+            }
+            // Only a settled network page can release or rebind a capture: Chromium also
+            // posts onPageFinished(failingUrl) right after a blocked or failed non-http
+            // load, and a host-bearing captured URL (myapp://callback) must not release
+            // itself.
+            if (!URLUtil.isNetworkUrl(url)) return
+            val held = capture ?: return
+            when {
+                RedirectCapture.shouldReleaseCapture(url, held.originUrl) -> setCaptured(null)
+                held.originUrl == null ->
+                    // Bind a restored/unknown-origin capture to the first page that settles.
+                    capture = held.copy(originUrl = url)
+            }
+        }
+
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
             // Fallback for main-frame non-http loads the override path misses. Sub-resource
             // errors are the common case here, so the guard comes before any allocation.
@@ -193,7 +232,7 @@ class MainActivity : AppCompatActivity() {
      * place so the FAB is re-clickable until the next navigation clears it.
      */
     private fun onShareCapturedRedirect() {
-        val captured = lastCapturedRedirect ?: return
+        val captured = capture?.url ?: return
         shareViaChooser(
             RedirectCapture.shareText(captured),
             R.string.share_tokens_preamble,
@@ -203,8 +242,14 @@ class MainActivity : AppCompatActivity() {
 
     /** Single writer for the capture state; keeps the field and the FAB visibility in lock-step. */
     private fun setCaptured(url: String?) {
-        lastCapturedRedirect = url
+        capture = url?.let { Capture(it, webView.url) }
         captureFab.visibility = if (url != null) View.VISIBLE else View.GONE
+    }
+
+    /** All programmatic loadUrl navigation funnels here so the capture is released exactly once. */
+    private fun navigate(url: String) {
+        setCaptured(null)
+        webView.loadUrl(url)
     }
 
     /**
@@ -223,9 +268,17 @@ class MainActivity : AppCompatActivity() {
         val raw = urlField.text.toString().trim()
         if (raw.isEmpty()) return
         val url = normalizeUrl(raw)
+        val scheme = Uri.parse(url).scheme
+        if (scheme != null && RedirectCapture.shouldCaptureScheme(scheme)) {
+            // The WebView cannot load this scheme; letting it fail would route the user's
+            // own input into the capture path and mislabel it as OAuth tokens.
+            Toast.makeText(this, R.string.toast_scheme_not_loadable, Toast.LENGTH_SHORT).show()
+            return
+        }
         if (url != raw) urlField.setText(url) // skip the layout pass when input already had a scheme
-        setCaptured(null) // user-initiated navigation invalidates any held capture
-        webView.loadUrl(url)
+        syncedUrl = url
+        urlField.clearFocus() // so onPageFinished can resync the bar after redirects
+        navigate(url)
     }
 
     /** Pure URL scheme normalization. */
@@ -276,9 +329,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadUrl(url: String) {
-        setCaptured(null) // user-initiated navigation invalidates any held capture
         urlField.setText(url)
-        webView.loadUrl(url)
+        syncedUrl = url
+        urlField.clearFocus()
+        navigate(url)
     }
 
     companion object {

@@ -1,5 +1,6 @@
 package com.cookiesextractor.app
 
+import java.net.URI
 import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 
@@ -29,6 +30,34 @@ object RedirectCapture {
     /** True iff [scheme] is one the WebView cannot load itself; null (no scheme) is not captured. */
     fun shouldCaptureScheme(scheme: String?): Boolean =
         scheme != null && scheme.lowercase() !in loadableSchemes
+
+    /**
+     * True when a page settling on [currentUrl] releases a capture produced while the app
+     * was on [originUrl]. Same-site fallback loads after the blocked redirect (an IdP's
+     * www. sibling, the relying party's callback page) keep the one-time code: hosts
+     * compare by registrable-domain approximation, equal host OR equal last two labels.
+     * The approximation can over-preserve on multi-label public suffixes (example.co.uk
+     * vs evil.co.uk), which errs toward never dropping a code. A scheme change releases;
+     * explicit ports are ignored; anything without a parseable host (about:blank, a urn:,
+     * a null origin after a restore) preserves. Callers gate this on network URLs only.
+     */
+    fun shouldReleaseCapture(currentUrl: String?, originUrl: String?): Boolean {
+        if (currentUrl == null || originUrl == null) return false
+        val current = runCatching { URI(currentUrl) }.getOrNull() ?: return false
+        val origin = runCatching { URI(originUrl) }.getOrNull() ?: return false
+        val currentHost = current.host?.lowercase() ?: return false
+        val originHost = origin.host?.lowercase() ?: return false
+        if (current.scheme?.lowercase() != origin.scheme?.lowercase()) return true
+        return !sameRegistrableHost(currentHost, originHost)
+    }
+
+    private fun sameRegistrableHost(a: String, b: String): Boolean {
+        if (a == b) return true
+        val al = a.split('.')
+        val bl = b.split('.')
+        if (al.size < 2 || bl.size < 2) return false
+        return al.takeLast(2) == bl.takeLast(2)
+    }
 
     /**
      * Renders [url]'s query parameters as "name=value" lines, URL order preserved, duplicates

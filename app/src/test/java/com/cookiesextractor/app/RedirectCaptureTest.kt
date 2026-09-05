@@ -29,6 +29,56 @@ class RedirectCaptureTest {
         )
     }
 
+    // ---- shouldReleaseCapture: origin-bound invalidation ----
+
+    @Test
+    fun sameOriginFallbackKeepsTheCapture() {
+        assertFalse(
+            RedirectCapture.shouldReleaseCapture("https://example.com/done", "https://example.com/auth")
+        )
+    }
+
+    @Test
+    fun differentSiteReleasesTheCapture() {
+        assertTrue(
+            RedirectCapture.shouldReleaseCapture("https://other.example.org/", "https://idp.example.com/auth")
+        )
+    }
+
+    @Test
+    fun siblingHostWithinTheSameSiteKeepsTheCapture() {
+        assertFalse(
+            RedirectCapture.shouldReleaseCapture("https://www.example.com/done", "https://idp.example.com/consent")
+        )
+    }
+
+    @Test
+    fun hostComparisonIsCaseInsensitive() {
+        assertFalse(
+            RedirectCapture.shouldReleaseCapture("https://EXAMPLE.com/done", "https://example.com/auth")
+        )
+    }
+
+    @Test
+    fun schemeChangeReleasesTheCapture() {
+        assertTrue(
+            RedirectCapture.shouldReleaseCapture("http://example.com/", "https://example.com/")
+        )
+    }
+
+    @Test
+    fun nullCurrentUrlOrOriginKeepsTheCapture() {
+        assertFalse(RedirectCapture.shouldReleaseCapture(null, "https://example.com/"))
+        assertFalse(RedirectCapture.shouldReleaseCapture("https://example.com/", null))
+    }
+
+    @Test
+    fun hostlessCurrentUrlKeepsTheCapture() {
+        assertFalse(
+            RedirectCapture.shouldReleaseCapture("urn:ietf:wg:oauth:2.0:oob?code=x", "https://example.com/")
+        )
+    }
+
     // ---- shouldCaptureScheme: everything else is captured ----
 
     @Test

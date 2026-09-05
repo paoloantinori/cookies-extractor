@@ -13,6 +13,7 @@
     <string name="bookmarks_empty">No bookmarks saved</string>
     <string name="toast_no_page">No page to bookmark.</string>
     <string name="bm_delete_cd">Delete bookmark</string>
+    <string name="toast_scheme_not_loadable">The WebView cannot load this URL scheme.</string>
     <string name="share_capture_cd">Share captured OAuth tokens</string>
     <string name="share_tokens_preamble">Here are the captured OAuth tokens:\n\n%1$s</string>
     <string name="share_tokens_chooser_title">Share OAuth tokens</string>
