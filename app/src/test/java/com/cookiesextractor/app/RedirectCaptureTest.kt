@@ -7,105 +7,37 @@ import org.junit.Test
 
 class RedirectCaptureTest {
 
-    // ---- shouldCapture: WebView-loadable schemes are never captured ----
+    // ---- shouldCaptureScheme: WebView-loadable schemes are never captured ----
 
     @Test
-    fun httpUrlIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("http://example.com"))
+    fun webviewLoadableSchemesAreNotCaptured() {
+        for (scheme in listOf("http", "https", "HTTP", "Https", "about", "data", "blob", "content", "mailto", "tel")) {
+            assertFalse("scheme: $scheme", RedirectCapture.shouldCaptureScheme(scheme))
+        }
     }
 
     @Test
-    fun httpsUrlIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("https://example.com/path?a=1&b=2"))
+    fun nullSchemeIsNotCaptured() {
+        assertFalse(RedirectCapture.shouldCaptureScheme(null))
     }
 
     @Test
-    fun uppercaseHttpsUrlIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("HTTPS://EXAMPLE.COM/AUTH"))
-    }
-
-    @Test
-    fun uppercaseHttpUrlIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("HTTP://example.com"))
-    }
-
-    @Test
-    fun opaqueHttpSchemeIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("http:x"))
-    }
-
-    @Test
-    fun aboutBlankIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("about:blank"))
-    }
-
-    @Test
-    fun dataUrlIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("data:text/html,<x>"))
-    }
-
-    @Test
-    fun blobUrlIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("blob:https://example.com/uuid"))
-    }
-
-    @Test
-    fun contentUrlIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("content://media/external/file/1"))
-    }
-
-    @Test
-    fun mailtoIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("mailto:support@vendor.com?subject=Help"))
-    }
-
-    @Test
-    fun telIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("tel:+393331234567"))
-    }
-
-    @Test
-    fun schemelessUrlIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture("example.com/path"))
-    }
-
-    @Test
-    fun emptyStringIsNotCaptured() {
-        assertFalse(RedirectCapture.shouldCapture(""))
-    }
-
-    // ---- shouldCapture: everything else is captured ----
-
-    @Test
-    fun oobUrnRedirectIsCaptured() {
-        assertTrue(
-            RedirectCapture.shouldCapture("urn:ietf:wg:oauth:2.0:oob?code=test123&session_state=xyz")
+    fun loadableSchemePolicyIsExactlyTheDocumentedSet() {
+        assertEquals(
+            setOf("http", "https", "about", "data", "blob", "content", "mailto", "tel"),
+            RedirectCapture.loadableSchemes
         )
     }
 
-    @Test
-    fun intentUrlIsCaptured() {
-        assertTrue(RedirectCapture.shouldCapture("intent://x#Intent;end="))
-    }
+    // ---- shouldCaptureScheme: everything else is captured ----
 
     @Test
-    fun customSchemeCallbackIsCaptured() {
-        assertTrue(RedirectCapture.shouldCapture("myapp://cb?code=x"))
-    }
-
-    @Test
-    fun fileUrlIsCaptured() {
-        assertTrue(RedirectCapture.shouldCapture("file:///x"))
-    }
-
-    @Test
-    fun javascriptUrlIsCaptured() {
-        assertTrue(RedirectCapture.shouldCapture("javascript:void(0)"))
-    }
-
-    @Test
-    fun uppercaseCustomSchemeIsCaptured() {
-        assertTrue(RedirectCapture.shouldCapture("MYAPP://cb"))
+    fun nonLoadableSchemesAreCaptured() {
+        // javascript: is pinned here even though it is unreachable at runtime
+        // (Blink consumes javascript: URLs before any WebViewClient callback).
+        for (scheme in listOf("urn", "URN", "intent", "file", "javascript", "myapp", "MYAPP")) {
+            assertTrue("scheme: $scheme", RedirectCapture.shouldCaptureScheme(scheme))
+        }
     }
 
     // ---- shareText: parameter parsing ----
@@ -176,10 +108,18 @@ class RedirectCaptureTest {
     }
 
     @Test
-    fun plusStaysLiteralInQuery() {
+    fun plusDecodesAsSpacePerRfc6749() {
+        assertEquals(
+            "state=hello world",
+            RedirectCapture.shareText("urn:x?state=hello+world")
+        )
+    }
+
+    @Test
+    fun percentEncodedPlusSurvivesDecoding() {
         assertEquals(
             "code=Ab3+Xd9",
-            RedirectCapture.shareText("urn:x?code=Ab3+Xd9")
+            RedirectCapture.shareText("urn:x?code=Ab3%2BXd9")
         )
     }
 

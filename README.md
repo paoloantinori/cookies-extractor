@@ -45,11 +45,13 @@ with `git commit --no-verify`.
 Internal / developer tool; sideloaded (not published to Google Play).
 
 ## Project layout
-- `app/src/main/java/com/cookiesextractor/app/` — Kotlin source (`MainActivity`,
-  `BookmarksRepository`, `Bookmark`).
-- `app/src/main/res/` — layouts, strings, themes.
-- `PRD.md` — product requirements (including the passkey limitation).
-- `backlog/` — task tracking (Backlog.md).
+- `app/src/main/java/com/cookiesextractor/app/`: Kotlin source (`MainActivity`,
+  `RedirectCapture`, `BookmarksRepository`, `Bookmark`).
+- `app/src/main/res/`: layouts, strings, themes, launcher icon.
+- `tools/gen_icon.py`: regenerates the ten legacy launcher PNGs (committed bytes are the
+  Pillow output).
+- `PRD.md`: product requirements (including the passkey limitation).
+- `backlog/`: task tracking (Backlog.md).
 
 ## Security note
 Extracted cookies **are** session credentials — anyone holding them can impersonate your

@@ -144,13 +144,6 @@ class MainActivity : AppCompatActivity() {
      */
     private inner class CapturingWebViewClient : WebViewClient() {
 
-        @Deprecated("Old framework signature; some WebView builds route loads through it instead of the WebResourceRequest overload. COK-3 keeps both load paths covered")
-        override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
-            if (!RedirectCapture.shouldCapture(url)) return false
-            setCaptured(url)
-            return true
-        }
-
         override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
             // Chromium fires this for iframe navigations too (e.g. ad-SDK intent://
             // fallbacks); only a main-frame redirect carries the authorization code, and an

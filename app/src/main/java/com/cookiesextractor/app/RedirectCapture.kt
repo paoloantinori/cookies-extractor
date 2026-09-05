@@ -1,6 +1,7 @@
 package com.cookiesextractor.app
 
 import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
 
 /**
  * Pure-JVM classification and parsing of OAuth redirect URLs captured from the WebView (COK-3).
@@ -19,30 +20,22 @@ object RedirectCapture {
      * a page, so its query string would be lost with an error page unless we capture it.
      * javascript: is classified as capturable but is unreachable at runtime: Blink consumes
      * javascript: URLs in the renderer before any WebViewClient callback fires (the test
-     * pins that dead classification on purpose).
+     * pins that dead classification on purpose). Visible internal for the policy-equality
+     * test only.
      */
-    private val loadableSchemes =
+    internal val loadableSchemes =
         setOf("http", "https", "about", "data", "blob", "content", "mailto", "tel")
 
-    /** True iff [url] has a scheme the WebView cannot load itself. */
-    fun shouldCapture(url: String): Boolean {
-        // Fast path for the dominant case: this runs for every navigation and subframe load.
-        // Only well-formed http(s) matches, so everything else still reaches the real parse.
-        if (url.regionMatches(0, "http://", 0, 7, ignoreCase = true) ||
-            url.regionMatches(0, "https://", 0, 8, ignoreCase = true)
-        ) return false
-        return shouldCaptureScheme(schemeOf(url))
-    }
-
-    /** Same decision for callers already holding a parsed scheme (no string round-trip). */
+    /** True iff [scheme] is one the WebView cannot load itself; null (no scheme) is not captured. */
     fun shouldCaptureScheme(scheme: String?): Boolean =
         scheme != null && scheme.lowercase() !in loadableSchemes
 
     /**
      * Renders [url]'s query parameters as "name=value" lines, URL order preserved, duplicates
      * kept. The fragment is stripped first (some IdPs append one; it is not a parameter),
-     * values are percent-decoded with '+' left literal per RFC 3986, and ANY undecodable
-     * segment falls back to the verbatim [url] so a parameter is never silently dropped.
+     * values are form-decoded per RFC 6749 section 4.1.2 ('+' is a space; a literal '+'
+     * arrives as %2B), and any designed decode failure falls back to the verbatim [url] so
+     * a parameter is never silently dropped.
      */
     fun shareText(url: String): String {
         val noFragment = url.substringBefore('#')
@@ -50,7 +43,7 @@ object RedirectCapture {
         if (queryStart < 0) return url
         val rawQuery = noFragment.substring(queryStart + 1)
         if (rawQuery.isEmpty()) return url
-        val lines = runCatching {
+        val lines = try {
             rawQuery.split('&')
                 .filter { it.isNotEmpty() }
                 .map { segment ->
@@ -58,16 +51,21 @@ object RedirectCapture {
                     val value = percentDecode(segment.substringAfter('=', ""))
                     "$name=$value"
                 }
-        }.getOrNull() ?: return url
+        } catch (e: IllegalArgumentException) {
+            return url
+        } catch (e: CharacterCodingException) {
+            return url
+        }
         return lines.joinToString("\n")
     }
 
     /**
-     * RFC 3986 percent-decoding over raw bytes. Unlike java.net.URLDecoder this treats '+'
-     * as a literal character: query strings are not form bodies, and base64-ish token
-     * values containing '+' must survive intact. Multi-byte UTF-8 sequences decode as one
-     * character each, and any malformed escape or invalid UTF-8 throws so the caller falls
-     * back to the verbatim URL instead of sharing a corrupted value.
+     * RFC 6749 section 4.1.2 form-decoding over raw bytes: '+' is a space, everything else
+     * is strict percent-decoding. Multi-byte UTF-8 sequences decode as one character each;
+     * a malformed escape or invalid UTF-8 throws (IllegalArgumentException or
+     * CharacterCodingException) so the caller falls back to the verbatim URL instead of
+     * sharing a corrupted value. Unlike java.net.URLDecoder, failures are limited to the
+     * two designed exception types, never a blanket catch.
      */
     private fun percentDecode(s: String): String {
         val src = s.toByteArray(Charsets.UTF_8)
@@ -75,23 +73,20 @@ object RedirectCapture {
         var i = 0
         while (i < src.size) {
             val b = src[i]
-            if (b != '%'.code.toByte()) {
-                out.add(b)
-                i++
-                continue
+            when {
+                b == '+'.code.toByte() -> out.add(' '.code.toByte())
+                b != '%'.code.toByte() -> out.add(b)
+                else -> {
+                    if (i + 2 >= src.size) throw IllegalArgumentException("truncated percent escape")
+                    val hi = Character.digit((src[i + 1].toInt() and 0xFF).toChar(), 16)
+                    val lo = Character.digit((src[i + 2].toInt() and 0xFF).toChar(), 16)
+                    if (hi < 0 || lo < 0) throw IllegalArgumentException("not a hex digit")
+                    out.add(((hi shl 4) or lo).toByte())
+                    i += 2
+                }
             }
-            if (i + 2 >= src.size) throw IllegalArgumentException("truncated percent escape")
-            val hi = Character.digit((src[i + 1].toInt() and 0xFF).toChar(), 16)
-            val lo = Character.digit((src[i + 2].toInt() and 0xFF).toChar(), 16)
-            if (hi < 0 || lo < 0) throw IllegalArgumentException("not a hex digit")
-            out.add(((hi shl 4) or lo).toByte())
-            i += 3
+            i++
         }
         return Charsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(out.toByteArray())).toString()
-    }
-
-    private fun schemeOf(url: String): String? {
-        val colon = url.indexOf(':')
-        return if (colon <= 0) null else url.substring(0, colon).lowercase()
     }
 }
