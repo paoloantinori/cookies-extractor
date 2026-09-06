@@ -19,9 +19,9 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   placeholders stay as written; an empty template restores the default message.
 - **Bookmarks**: save the current page, tap to reload it later, swipe/delete to remove.
 - **OAuth redirect capture**: non-http OAuth redirects (e.g. `urn:ietf:wg:oauth:2.0:oob?code=…`)
-  are caught before the WebView shows an error page, and their token parameters are shareable
-  like cookies. A Snackbar announces the capture, so the login's silent terminal state is
-  no longer mistaken for a stall.
+  are caught before the WebView shows an error page, and the **full redirect URL is shared as
+  one line** (a URL has no spaces, so no paste or relay hop can corrupt the code). A Snackbar
+  announces the capture, so the login's silent terminal state is no longer mistaken for a stall.
 - **Session reset** (trash button): wipes cookies + WebView storage behind a confirm and
   reloads, for when a login flow gets wedged and needs a from-zero restart.
 - **Debug channel** (developer options): opt-in HTTP endpoint to pilot the app from a laptop

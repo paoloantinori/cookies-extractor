@@ -59,7 +59,7 @@ import org.json.JSONObject
  *  - COK-1.4: FAB -> extract cookies via CookieManager (empty-state Toast)
  *  - COK-1.5: shareCookies() fires the ACTION_SEND share sheet
  *  - COK-2: bookmarks (save/load/delete) via a bottom sheet
- *  - COK-3: capture non-http OAuth redirects and share their token parameters
+ *  - COK-3: capture non-http OAuth redirects and share the full redirect URL (COK-16)
  *  - COK-9: clear cookies + WebView storage behind a confirm dialog, then reload
  *  - COK-10: token-gated HTTP debug channel (developer options) for external control
  *  - COK-11: Snackbar notice when an OAuth capture lands (the flow's silent terminal state)
@@ -297,16 +297,15 @@ class MainActivity : AppCompatActivity() {
         shareViaChooser(cookies, R.string.share_preamble, R.string.share_chooser_title)
 
     /**
-     * Shares the last captured OAuth redirect's parameters (COK-3). The capture stays in
-     * place so the FAB is re-clickable until the next navigation clears it.
+     * Shares the last captured OAuth redirect (COK-3). The payload is the raw redirect
+     * URL, not parsed parameters: a URL is one space-free line, so it survives relays
+     * that strip or rejoin newlines (2026-09-06 incident: newline-separated params
+     * arrived glued and the code exchange failed). The capture stays in place so the
+     * FAB is re-clickable until the next navigation clears it.
      */
     private fun onShareCapturedRedirect() {
         val captured = capture?.url ?: return
-        shareViaChooser(
-            RedirectCapture.shareText(captured),
-            R.string.share_tokens_preamble,
-            R.string.share_tokens_chooser_title
-        )
+        shareViaChooser(captured, R.string.share_tokens_preamble, R.string.share_tokens_chooser_title)
     }
 
     /**

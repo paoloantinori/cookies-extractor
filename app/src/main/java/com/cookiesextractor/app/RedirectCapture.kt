@@ -64,7 +64,8 @@ object RedirectCapture {
      * kept. The fragment is stripped first (some IdPs append one; it is not a parameter),
      * values are form-decoded per RFC 6749 section 4.1.2 ('+' is a space; a literal '+'
      * arrives as %2B), and any designed decode failure falls back to the verbatim [url] so
-     * a parameter is never silently dropped.
+     * a parameter is never silently dropped. Serves the debug channel's /capture; the share
+     * flow sends the raw URL instead (COK-16: newline-separated lines got glued in transit).
      */
     fun shareText(url: String): String {
         val noFragment = url.substringBefore('#')
