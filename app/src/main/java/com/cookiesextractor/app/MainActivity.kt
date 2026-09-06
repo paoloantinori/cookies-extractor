@@ -34,6 +34,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -690,6 +691,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         dialog.setContentView(sheet)
+        // The EditText row makes the sheet open in the collapsed peek state; force it
+        // expanded or the add row sits below the fold (observed on device).
+        dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
         render(repo.load())
         showTracked(dialog)
     }
