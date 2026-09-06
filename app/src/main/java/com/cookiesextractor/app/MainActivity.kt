@@ -92,6 +92,11 @@ class MainActivity : AppCompatActivity() {
     // anything else is an un-submitted draft that onPageFinished must not clobber.
     private var syncedUrl: String? = null
 
+    // The URL the user last entered or loaded on purpose (address bar, bookmark, debug
+    // channel), captured before redirects can replace it. This is the URL worth
+    // re-entering, unlike the post-redirect webView.url (COK-13).
+    private var entryUrl: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -140,13 +145,13 @@ class MainActivity : AppCompatActivity() {
         // Cold start: load the default URL so the address bar and WebView stay in sync.
         if (savedInstanceState == null) {
             urlField.setText(getString(R.string.default_url))
-            syncedUrl = getString(R.string.default_url)
-            webView.loadUrl(getString(R.string.default_url))
+            commitUrl(getString(R.string.default_url))
         } else {
             // Restore the WebView history (page content itself reloads) and any capture:
             // the authorization code is one-time and must survive recreates not covered by
             // configChanges (fontScale/density/locale/process death).
             webView.restoreState(savedInstanceState)
+            savedInstanceState.getString(STATE_ENTRY_URL)?.let { entryUrl = it }
             savedInstanceState.getString(STATE_CAPTURED_REDIRECT)?.let { setCaptured(it, notify = false) }
         }
     }
@@ -157,6 +162,7 @@ class MainActivity : AppCompatActivity() {
         // Instance state is shell-dumpable; that narrow exposure of the one-time code is
         // deliberately accepted over losing the capture on a recreate.
         capture?.let { outState.putString(STATE_CAPTURED_REDIRECT, it.url) }
+        entryUrl?.let { outState.putString(STATE_ENTRY_URL, it) }
     }
 
     override fun onDestroy() {
@@ -339,15 +345,25 @@ class MainActivity : AppCompatActivity() {
         val raw = urlField.text.toString().trim()
         if (raw.isEmpty()) return
         val url = normalizeUrl(raw)
-        val scheme = Uri.parse(url).scheme
-        if (scheme != null && RedirectCapture.shouldCaptureScheme(scheme)) {
+        if (!isLoadableUrl(url)) {
             // The WebView cannot load this scheme; letting it fail would route the user's
             // own input into the capture path and mislabel it as OAuth tokens.
             Toast.makeText(this, R.string.toast_scheme_not_loadable, Toast.LENGTH_SHORT).show()
             return
         }
         if (url != raw) urlField.setText(url) // skip the layout pass when input already had a scheme
+        commitUrl(url)
+    }
+
+    /**
+     * Single writer for "the app deliberately went to url": address-bar sync, entry-URL
+     * memory, focus release, and the capture-releasing load. All three entry funnels
+     * (cold start, address bar, bookmark/debug load) go through here so the
+     * syncedUrl/entryUrl pair cannot desync (COK-13).
+     */
+    private fun commitUrl(url: String) {
         syncedUrl = url
+        entryUrl = url
         urlField.clearFocus() // so onPageFinished can resync the bar after redirects
         navigate(url)
     }
@@ -355,8 +371,18 @@ class MainActivity : AppCompatActivity() {
     /** Pure URL scheme normalization. */
     private fun normalizeUrl(raw: String): String = when {
         URLUtil.isNetworkUrl(raw) -> raw   // already http(s)
-        raw.contains("://") -> raw         // some other scheme — don't double-prefix
-        else -> "https://$raw"             // bare input — assume https
+        raw.contains("://") -> raw         // some other scheme: don't double-prefix
+        else -> "https://$raw"             // bare input: assume https
+    }
+
+    /**
+     * True when a normalized [url] can be loaded as a page. Capture-schemes must be rejected
+     * before load: their failure would route the URL into onReceivedError's capture path and
+     * mislabel it as OAuth tokens. Shared by the address bar and the bookmark Add row.
+     */
+    private fun isLoadableUrl(url: String): Boolean {
+        val scheme = Uri.parse(url).scheme ?: return true
+        return !RedirectCapture.shouldCaptureScheme(scheme)
     }
 
     /**
@@ -613,13 +639,14 @@ class MainActivity : AppCompatActivity() {
             ?.hostAddress
     }.getOrNull()
 
-    /** Shows the bookmarks bottom sheet: add current page, tap to load, delete. */
+    /** Shows the bookmarks bottom sheet: add by URL, tap to load, delete. */
     private fun showBookmarks() {
         val dialog = BottomSheetDialog(this)
         val sheet = layoutInflater.inflate(R.layout.dialog_bookmarks, null)
         val list: LinearLayout = sheet.findViewById(R.id.bookmarks_list)
         val empty: TextView = sheet.findViewById(R.id.bookmarks_empty)
-        val addCurrent: Button = sheet.findViewById(R.id.add_current)
+        val urlInput: EditText = sheet.findViewById(R.id.bm_url_input)
+        val addButton: Button = sheet.findViewById(R.id.bm_add)
 
         fun render(items: List<Bookmark>) {
             list.removeAllViews()
@@ -636,14 +663,30 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        addCurrent.setOnClickListener {
-            val url = currentNetworkUrl()
-            if (url != null) {
-                val title = webView.title?.takeIf { it.isNotBlank() } ?: Uri.parse(url).host.orEmpty()
-                render(repo.add(Bookmark(title, url)))
-            } else {
-                Toast.makeText(this, R.string.toast_no_page, Toast.LENGTH_SHORT).show()
+        // The entry URL (pre-redirect) of the current flow, editable for a custom address;
+        // normalizeUrl keeps bare input usable, repo.add upserts by URL.
+        urlInput.setText(entryUrl ?: currentNetworkUrl() ?: "")
+        addButton.setOnClickListener {
+            val raw = urlInput.text.toString().trim()
+            if (raw.isEmpty()) {
+                Toast.makeText(this, R.string.toast_bm_empty_input, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
+            val url = normalizeUrl(raw)
+            if (!isLoadableUrl(url)) {
+                // Same guard as the address bar: a non-loadable scheme would land in the
+                // capture path on load and mislabel itself as captured tokens.
+                Toast.makeText(this, R.string.toast_scheme_not_loadable, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            // Page title when this IS the current page (nothing redirected in between);
+            // behind redirects the host is the honest label for an entry URL. Chromium
+            // canonicalizes an empty path to a trailing slash, so compare tolerantly.
+            val host = Uri.parse(url).host.orEmpty().ifBlank { url }
+            val onCurrentPage = webView.url?.removeSuffix("/") == url.removeSuffix("/")
+            val title = if (onCurrentPage) webView.title?.takeIf { it.isNotBlank() } ?: host else host
+            render(repo.add(Bookmark(title, url)))
+            urlInput.setText(url)
         }
 
         dialog.setContentView(sheet)
@@ -653,14 +696,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadUrl(url: String) {
         urlField.setText(url)
-        syncedUrl = url
-        urlField.clearFocus()
-        navigate(url)
+        commitUrl(url)
     }
 
     companion object {
         private const val TAG = "CookieExtractor"
         private const val DEBUG_PORT = 8777
         private const val STATE_CAPTURED_REDIRECT = "captured_redirect"
+        private const val STATE_ENTRY_URL = "entry_url"
     }
 }

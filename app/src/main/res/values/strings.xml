@@ -9,9 +9,10 @@
     <string name="share_chooser_title">Share cookies</string>
     <string name="bookmarks_btn_cd">Open bookmarks</string>
     <string name="bookmarks_title">Bookmarks</string>
-    <string name="add_current">Add current page</string>
+    <string name="bm_url_hint">Add a URL</string>
+    <string name="bm_add">Add</string>
     <string name="bookmarks_empty">No bookmarks saved</string>
-    <string name="toast_no_page">No page to bookmark.</string>
+    <string name="toast_bm_empty_input">Enter a URL first.</string>
     <string name="bm_delete_cd">Delete bookmark</string>
     <string name="toast_scheme_not_loadable">The WebView cannot load this URL scheme.</string>
     <string name="clear_session_btn_cd">Clear cookies and session storage</string>
