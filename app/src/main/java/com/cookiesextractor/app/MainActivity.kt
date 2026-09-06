@@ -583,7 +583,10 @@ class MainActivity : AppCompatActivity() {
      * offset, so the tap is translated into that window's local space first.
      */
     private fun dispatchTap(x: Float, y: Float) {
+        // The width guard mirrors /screenshot: a dialog caught before its first layout
+        // must not steal coordinates that came from an activity-window screenshot.
         val dialogDecor = openDialogs.lastOrNull { it.isShowing }?.window?.decorView
+            ?.takeIf { it.width > 0 }
         val (target, lx, ly) = if (dialogDecor != null) {
             val origin = IntArray(2)
             dialogDecor.getLocationOnScreen(origin)
