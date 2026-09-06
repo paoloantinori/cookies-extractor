@@ -578,16 +578,23 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Dispatches on the topmost open dialog when one is showing (dialogs are separate
-     * windows the activity never sees), else on the activity window. Screen coordinates:
-     * a dialog's decor view is laid out in the same space as /screenshot's.
+     * windows the activity never sees), else on the activity window. Coordinates arrive in
+     * screen space; a wrap-content dialog window's decor starts at its own on-screen
+     * offset, so the tap is translated into that window's local space first.
      */
     private fun dispatchTap(x: Float, y: Float) {
-        val target = openDialogs.lastOrNull { it.isShowing }?.window?.decorView
-            ?: window.decorView
+        val dialogDecor = openDialogs.lastOrNull { it.isShowing }?.window?.decorView
+        val (target, lx, ly) = if (dialogDecor != null) {
+            val origin = IntArray(2)
+            dialogDecor.getLocationOnScreen(origin)
+            Triple(dialogDecor, x - origin[0], y - origin[1])
+        } else {
+            Triple(window.decorView, x, y)
+        }
         val now = SystemClock.uptimeMillis()
         listOf(
-            MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0),
-            MotionEvent.obtain(now, now + 60, MotionEvent.ACTION_UP, x, y, 0),
+            MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, lx, ly, 0),
+            MotionEvent.obtain(now, now + 60, MotionEvent.ACTION_UP, lx, ly, 0),
         ).forEach {
             target.dispatchTouchEvent(it)
             it.recycle()
