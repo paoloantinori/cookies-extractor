@@ -13,6 +13,10 @@ exactly like in a normal browser, then tap one button to pull the session cookie
 - Log in manually with **password / 2FA / OTP** (and most SSO-redirect flows).
 - **FAB** → extracts all cookies for the loaded domain via `CookieManager` and sends them
   through the Android **share sheet** (messaging apps, clipboard, etc.).
+- **Share template**: long-press the share FAB to define the message template used for
+  both shares (cookies and captured OAuth tokens). Placeholders: `{payload}` (the
+  cookie/token text), `{url}`, `{title}`, `{host}`, `{date}` (ISO-8601). Unknown
+  placeholders stay as written; an empty template restores the default message.
 - **Bookmarks**: save the current page, tap to reload it later, swipe/delete to remove.
 - **OAuth redirect capture**: non-http OAuth redirects (e.g. `urn:ietf:wg:oauth:2.0:oob?code=…`)
   are caught before the WebView shows an error page, and their token parameters are shareable

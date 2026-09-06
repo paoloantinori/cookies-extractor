@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Share-template editor content (COK-15): monospace input + live preview. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <EditText
+        android:id="@+id/template_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/template_hint"
+        android:inputType="textMultiLine"
+        android:maxLength="2000"
+        android:minLines="3"
+        android:gravity="top"
+        android:typeface="monospace" />
+
+    <TextView
+        android:id="@+id/template_preview_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="12dp"
+        android:text="@string/template_preview_label"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/template_preview"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+</LinearLayout>

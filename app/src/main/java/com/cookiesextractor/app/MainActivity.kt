@@ -9,6 +9,8 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Log
 import android.view.MotionEvent
 import android.view.PixelCopy
@@ -44,6 +46,9 @@ import java.io.IOException
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.security.SecureRandom
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
@@ -69,6 +74,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var urlField: EditText
     private lateinit var captureFab: FloatingActionButton
     private val repo by lazy { BookmarksRepository(this) }
+    private val shareTemplateRepo by lazy { ShareTemplateRepository(this) }
     private var devDialog: AlertDialog? = null
 
     // COK-12: every open dialog, last-shown last. Dialogs are separate windows, so the
@@ -125,6 +131,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         shareFab.setOnClickListener { onExtractCookies() }
+        // Long-press opens the share-message template editor instead of sharing (COK-15).
+        shareFab.setOnLongClickListener { showTemplateEditor(); true }
         captureFab.setOnClickListener { onShareCapturedRedirect() }
         devButton.setOnClickListener { showDeveloperOptions() }
         clearSessionButton.setOnClickListener { confirmClearSession() }
@@ -331,15 +339,84 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * Placeholder values for the share template (COK-15): the page the WebView is on when
+     * the user shares. Both flows (cookies, captured tokens) feed the same context, with
+     * [payload] carrying the respective text.
+     */
+    private fun shareContext(payload: String): Map<String, String> {
+        val url = webView.url.orEmpty()
+        return mapOf(
+            ShareTemplate.KEY_PAYLOAD to payload,
+            ShareTemplate.KEY_URL to url,
+            ShareTemplate.KEY_TITLE to webView.title.orEmpty(),
+            ShareTemplate.KEY_HOST to Uri.parse(url).host.orEmpty(),
+            // SimpleDateFormat, not java.time: minSdk 24 without coreLibraryDesugaring.
+            ShareTemplate.KEY_DATE to SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()),
+        )
+    }
+
+    /**
      * Fires the Android share sheet (ACTION_SEND, text/plain) wrapped in Intent.createChooser()
-     * per PRD §4.5.
+     * per PRD §4.5. A stored template (COK-15) shapes the whole message; without one the
+     * preamble string keeps today's output byte-identical.
      */
     private fun shareViaChooser(text: String, @StringRes preambleRes: Int, @StringRes titleRes: Int) {
+        val template = shareTemplateRepo.load()
+        val message =
+            if (template != null) ShareTemplate.render(template, shareContext(text))
+            else getString(preambleRes, text)
         val share = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, getString(preambleRes, text))
+            putExtra(Intent.EXTRA_TEXT, message)
         }
         startActivity(Intent.createChooser(share, getString(titleRes)))
+    }
+
+    /**
+     * Share-template editor (COK-15), opened by long-pressing the share FAB. The preview
+     * re-renders on every keystroke from the page's context (frozen at dialog open) with
+     * a sample payload, never the real cookies or tokens; saving an empty field clears
+     * the template and restores the default share message.
+     */
+    private fun showTemplateEditor() {
+        val sheet = layoutInflater.inflate(R.layout.dialog_template, null)
+        val input: EditText = sheet.findViewById(R.id.template_input)
+        val preview: TextView = sheet.findViewById(R.id.template_preview)
+        input.setText(shareTemplateRepo.load().orEmpty())
+        val previewContext = shareContext(getString(R.string.template_preview_payload))
+        fun refreshPreview() {
+            val template = input.text.toString()
+            preview.text =
+                if (template.isBlank()) getString(R.string.template_preview_default)
+                else ShareTemplate.render(template, previewContext)
+        }
+        input.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) = refreshPreview()
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+        })
+        refreshPreview()
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.template_editor_title)
+            .setMessage(getString(R.string.template_legend_fmt, ShareTemplate.PLACEHOLDERS.joinToString(" ") { "{$it}" }))
+            .setView(sheet)
+            .setPositiveButton(R.string.template_save) { _, _ ->
+                val template = input.text.toString().trim()
+                if (template.isEmpty()) {
+                    shareTemplateRepo.clear()
+                    Toast.makeText(this, R.string.toast_template_cleared, Toast.LENGTH_SHORT).show()
+                } else {
+                    shareTemplateRepo.save(template)
+                    Toast.makeText(this, R.string.toast_template_saved, Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton(R.string.template_cancel, null)
+            .setNeutralButton(R.string.template_reset) { _, _ ->
+                shareTemplateRepo.clear()
+                Toast.makeText(this, R.string.toast_template_cleared, Toast.LENGTH_SHORT).show()
+            }
+            .create()
+        showTracked(dialog)
     }
 
     private fun loadUrlFromField() {

@@ -34,4 +34,15 @@
     <string name="capture_notice_share">Share</string>
     <string name="share_tokens_preamble">Here are the captured OAuth tokens:\n\n%1$s</string>
     <string name="share_tokens_chooser_title">Share OAuth tokens</string>
+    <string name="template_editor_title">Share message template</string>
+    <string name="template_hint">e.g. curl -H \"Cookie: {payload}\" {url}</string>
+    <string name="template_legend_fmt">Placeholders: %1$s. Unknown ones stay as written. Leave empty to use the default message.</string>
+    <string name="template_preview_label">Preview</string>
+    <string name="template_preview_payload">a=1; b=2</string>
+    <string name="template_preview_default">(Default share message)</string>
+    <string name="template_save">Save</string>
+    <string name="template_reset">Reset to default</string>
+    <string name="template_cancel">Cancel</string>
+    <string name="toast_template_saved">Template saved.</string>
+    <string name="toast_template_cleared">Template cleared: using the default message.</string>
 </resources>
