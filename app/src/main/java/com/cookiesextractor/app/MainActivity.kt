@@ -284,8 +284,9 @@ class MainActivity : AppCompatActivity() {
         if (cookies.isBlank()) {
             Toast.makeText(this, R.string.toast_no_cookies, Toast.LENGTH_SHORT).show()
         } else {
-            // Full string goes to logcat for reliable device-side verification (COK-1.6).
-            Log.i(TAG, "Cookies for ${webView.url}:\n$cookies")
+            // Debug builds only (COK-19): a release build must not ship session cookies
+            // into logcat, where they ride along any bug report a user attaches.
+            if (BuildConfig.DEBUG) Log.i(TAG, "Cookies for ${webView.url}:\n$cookies")
             shareCookies(cookies)
         }
     }
