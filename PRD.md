@@ -3,7 +3,7 @@
 ## 1. Project Overview
 **Objective:** Build a single-screen Android application that allows a user to navigate to any web application, manually authenticate (bypassing headless-automation blockers like 2FA QR codes and interactive logins), and extract the resulting session cookies for sharing. Passkey-only third-party logins are not supported — see §4.3.
 **Target Audience:** A personal power tool, published for anyone who needs the same capability.
-**Platform:** Android (Target SDK 35+; target the latest available — see §4.1).
+**Platform:** Android (Target SDK 36; see section 4.1).
 **Language:** Kotlin.
 
 ## 2. Core Features
