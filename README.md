@@ -36,7 +36,7 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   its own WebView through the public `CookieManager` API.
 
 ## Build & run
-Requirements: JDK 21, Android SDK (`compileSdk`/`targetSdk` 35).
+Requirements: JDK 21, Android SDK (`compileSdk`/`targetSdk` 36).
 
 ```bash
 ./gradlew assembleDebug
@@ -47,11 +47,10 @@ Toolchain: AGP 8.10.0, Kotlin 2.2.0, Gradle wrapper 8.11.1.
 
 ## Keeping personal data out
 
-A pre-commit guard (`git-hooks/pre-commit`) refuses commits whose added lines look like
-personal data or secrets — private IP ranges, local home paths, the device hostname, and
-GitHub/Telegram tokens. It's active in this clone via `core.hooksPath`; in a fresh clone
-enable it with `git config core.hooksPath "$PWD/git-hooks"`. Bypass an intentional commit
-with `git commit --no-verify`.
+Development on this project runs with a pre-commit guard (not shipped in this repository)
+that refuses commits whose added lines look like personal data or secrets: private IP
+ranges, local home paths, the device hostname, and API tokens. Intentional commits bypass
+it with `git commit --no-verify`.
 
 ## Scope
 A personal power tool: extract your own session cookies from sites you log into.
@@ -64,7 +63,6 @@ Licensed under the Apache License 2.0 (see `LICENSE`).
 - `tools/gen_icon.py`: regenerates the ten legacy launcher PNGs (committed bytes are the
   Pillow output).
 - `PRD.md`: product requirements (including the passkey limitation).
-- `backlog/`: task tracking (Backlog.md).
 
 ## Debug channel
 Off by default. Enable it from the developer-options (wrench) button: the dialog shows the

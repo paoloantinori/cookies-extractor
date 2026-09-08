@@ -2,7 +2,7 @@
 
 ## 1. Project Overview
 **Objective:** Build a single-screen Android application that allows a user to navigate to any web application, manually authenticate (bypassing headless-automation blockers like 2FA QR codes and interactive logins), and extract the resulting session cookies for sharing. Passkey-only third-party logins are not supported — see §4.3.
-**Target Audience:** Internal use / developer tool.
+**Target Audience:** A personal power tool, published for anyone who needs the same capability.
 **Platform:** Android (Target SDK 35+; target the latest available — see §4.1).
 **Language:** Kotlin.
 
@@ -22,7 +22,7 @@ A single `MainActivity` with three components:
 
 ### 4.1. Starting Template & SDK
 * **Base:** Start with the Android Studio "Empty Views Activity" template.
-* **Target SDK:** As of 2026, Google Play requires `targetSdk` within one year of the latest release (API 35 minimum). This is an internal/dev tool likely sideloaded, so Play compliance is not strictly required — but target the **latest available SDK** (35, or 36 when installed). (Earlier draft's "SDK 34" is now stale.)
+* **Target SDK:** 36 (Android 16). Play requires API 36 for new apps since 2026-08-31, so the project targets 36 to keep every distribution channel open (sideload needs nothing).
 * **Alternative bootstrap:** Clone a boilerplate wrapper such as `MonsterTechnoGits/android-webview-wrapper` and strip unneeded features, retaining only the core WebView setup.
 
 ### 4.2. Required APIs and Dependencies
