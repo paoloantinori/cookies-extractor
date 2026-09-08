@@ -12,3 +12,11 @@
 # graphify knowledge graph (regenerable)
 graphify-out/
 __pycache__/
+
+# local workflow artifacts, untracked on purpose (user decision 2026-09-08)
+/CLAUDE.md
+/backlog/
+/claudedocs/
+/git-hooks/
+/.claude/
+/.playwright-mcp/
