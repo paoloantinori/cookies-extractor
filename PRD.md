@@ -59,3 +59,6 @@ Take the CookieManager output string and build a share intent:
 
 ## 6. Open Items / Verification Needed
 * Confirm local Android SDK + JDK meet the Android Gradle Plugin requirements (see build-environment check).
+
+## 7. License
+Apache License 2.0; see `LICENSE` at the repository root.

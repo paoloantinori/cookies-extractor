@@ -54,7 +54,8 @@ enable it with `git config core.hooksPath "$PWD/git-hooks"`. Bypass an intention
 with `git commit --no-verify`.
 
 ## Scope
-Internal / developer tool; sideloaded (not published to Google Play).
+A personal power tool: extract your own session cookies from sites you log into.
+Licensed under the Apache License 2.0 (see `LICENSE`).
 
 ## Project layout
 - `app/src/main/java/com/cookiesextractor/app/`: Kotlin source (`MainActivity`,
