@@ -95,6 +95,17 @@ class MainActivity : AppCompatActivity() {
 
     private var capture: Capture? = null
 
+    // Back traverses WebView history when there is any; with no history the callback
+    // disables itself so the system handles back, which lets Android 16+ show the
+    // predictive back-to-home animation instead of swallowing the gesture (COK-25).
+    // doUpdateVisitedHistory keeps isEnabled in step with the history stack.
+    private val backCallback = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            setCaptured(null)
+            webView.goBack()
+        }
+    }
+
     // The URL the address bar last showed because the app put it there; a field holding
     // anything else is an un-submitted draft that onPageFinished must not clobber.
     private var syncedUrl: String? = null
@@ -138,18 +149,8 @@ class MainActivity : AppCompatActivity() {
         clearSessionButton.setOnClickListener { confirmClearSession() }
         bookmarksButton.setOnClickListener { showBookmarks() }
 
-        // Back button traverses WebView history before exiting the app; history traversal
-        // is user-purposed navigation, so any held capture is released (COK-7).
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (webView.canGoBack()) {
-                    setCaptured(null)
-                    webView.goBack()
-                } else {
-                    finish()
-                }
-            }
-        })
+        // Back traverses history via backCallback above (COK-7 capture release included).
+        onBackPressedDispatcher.addCallback(this, backCallback)
 
         // Cold start: load the default URL so the address bar and WebView stay in sync.
         if (savedInstanceState == null) {
@@ -160,6 +161,9 @@ class MainActivity : AppCompatActivity() {
             // the authorization code is one-time and must survive recreates not covered by
             // configChanges (fontScale/density/locale/process death).
             webView.restoreState(savedInstanceState)
+            // restoreState does not fire navigation callbacks; sync the back callback now
+            // or back would exit the app until the restored page commits (COK-25 review).
+            backCallback.isEnabled = webView.canGoBack()
             savedInstanceState.getString(STATE_ENTRY_URL)?.let { entryUrl = it }
             savedInstanceState.getString(STATE_CAPTURED_REDIRECT)?.let { setCaptured(it, notify = false) }
         }
@@ -233,6 +237,14 @@ class MainActivity : AppCompatActivity() {
             // iframe capture would overwrite the real one.
             if (!request.isForMainFrame) return false
             return captureIfRedirect(request)
+        }
+
+        override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
+            // Fires on new navigations AND on back/forward, so the back callback's enabled
+            // state tracks the real history stack (COK-25 predictive back).
+            val canGoBack = view.canGoBack()
+            if (backCallback.isEnabled != canGoBack) backCallback.isEnabled = canGoBack
+            super.doUpdateVisitedHistory(view, url, isReload)
         }
 
         override fun onPageFinished(view: WebView, url: String) {

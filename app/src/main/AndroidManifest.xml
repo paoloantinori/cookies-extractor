@@ -5,15 +5,18 @@
     <!-- Required for the WebView to load remote URLs (PRD §5) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Backup disabled (COK-25): the bookmark and share-template preferences are
+         credential-adjacent (a template can embed token text; bookmarks name private
+         services) and must not ride adb/cloud backups. Everything is re-creatable. -->
     <application
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.CookiesExtractor"
         android:usesCleartextTraffic="true"
-        tools:targetApi="34">
+        tools:targetApi="36">
 
         <activity
             android:name=".MainActivity"

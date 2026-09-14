@@ -82,7 +82,9 @@ and `/navigate` accepts http(s) URLs only. Endpoints (GET):
 | `/tap?x=&y=` | dispatches a touch to the topmost window (dialog-aware) |
 
 `/capture` and `/screenshot` expose session data by design: keep the channel disabled
-except while testing, and only on networks you trust.
+except while testing, and only on networks you trust. Note (2026-09-08): Android plans a
+Local Network Permission (staged in Android 16, enforcement expected around 2026 Q2) that
+will require granting the app local-network access for this server to accept connections.
 
 ## Security note
 Extracted cookies **are** session credentials — anyone holding them can impersonate your
