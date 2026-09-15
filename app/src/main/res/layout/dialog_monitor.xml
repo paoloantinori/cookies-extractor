@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Session-monitor configuration (COK-26): everything user-configurable. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <EditText
+            android:id="@+id/monitor_url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/monitor_url_hint"
+            android:imeOptions="actionNext"
+            android:inputType="textUri"
+            android:maxLines="1" />
+
+        <EditText
+            android:id="@+id/monitor_token"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/monitor_token_hint"
+            android:imeOptions="actionNext"
+            android:inputType="textVisiblePassword"
+            android:maxLines="1" />
+
+        <EditText
+            android:id="@+id/monitor_period"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="@string/monitor_period_hint"
+            android:imeOptions="actionDone"
+            android:inputType="number"
+            android:maxLines="1" />
+
+        <Switch
+            android:id="@+id/monitor_enabled"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:text="@string/monitor_enabled_switch" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:text="@string/monitor_legend"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/monitor_check"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp"
+            android:text="@string/monitor_check" />
+
+        <TextView
+            android:id="@+id/monitor_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textIsSelectable="true" />
+
+    </LinearLayout>
+</ScrollView>

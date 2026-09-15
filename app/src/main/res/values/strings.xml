@@ -45,4 +45,23 @@
     <string name="template_cancel">Cancel</string>
     <string name="toast_template_saved">Template saved.</string>
     <string name="toast_template_cleared">Template cleared: using the default message.</string>
+    <string name="monitor_btn_cd">Session monitor: get notified when a login expires</string>
+    <string name="monitor_title">Session monitor</string>
+    <string name="monitor_url_hint">State document URL (e.g. https://gw.example/monitor/state)</string>
+    <string name="monitor_token_hint">Bearer token</string>
+    <string name="monitor_period_hint">Poll period in minutes (15-240)</string>
+    <string name="monitor_check">Check now</string>
+    <string name="monitor_enabled_switch">Notify me (poll on schedule)</string>
+    <string name="monitor_legend">The gateway document must be {\"alerts\":[{service,url,state,ts}]}; states: expired, ok. Poll latency is the configured period.</string>
+    <string name="monitor_save">Save</string>
+    <string name="monitor_cancel">Cancel</string>
+    <string name="monitor_status_last_fmt">Last check: %1$s</string>
+    <string name="monitor_status_never">never</string>
+    <string name="monitor_channel_name">Session alerts</string>
+    <string name="monitor_notification_title">Login needs redoing</string>
+    <string name="monitor_notification_text">Session for %1$s needs re-login. Tap to open it.</string>
+    <string name="monitor_status_unconfigured">Configure the state document URL and token first.</string>
+    <string name="monitor_status_fetch_failed">Fetch failed (%1$s).</string>
+    <string name="monitor_status_bad_document">The document is not a valid alerts JSON.</string>
+    <string name="monitor_status_checked_fmt">Checked %1$d services: %2$d notified, %3$d cleared.</string>
 </resources>

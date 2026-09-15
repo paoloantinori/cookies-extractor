@@ -30,6 +30,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -134,6 +135,7 @@ class MainActivity : AppCompatActivity() {
         val shareFab: FloatingActionButton = findViewById(R.id.share_fab)
         val devButton: ImageButton = findViewById(R.id.dev_btn)
         val clearSessionButton: ImageButton = findViewById(R.id.clear_session_btn)
+        val monitorButton: ImageButton = findViewById(R.id.monitor_btn)
         val bookmarksButton: ImageButton = findViewById(R.id.bookmarks_btn)
 
         configureWebView()
@@ -155,6 +157,7 @@ class MainActivity : AppCompatActivity() {
         captureFab.setOnClickListener { onShareCapturedRedirect() }
         devButton.setOnClickListener { showDeveloperOptions() }
         clearSessionButton.setOnClickListener { confirmClearSession() }
+        monitorButton.setOnClickListener { showMonitorDialog() }
         bookmarksButton.setOnClickListener { showBookmarks() }
 
         // Back traverses history via backCallback above (COK-7 capture release included).
@@ -175,6 +178,9 @@ class MainActivity : AppCompatActivity() {
             savedInstanceState.getString(STATE_ENTRY_URL)?.let { entryUrl = it }
             savedInstanceState.getString(STATE_CAPTURED_REDIRECT)?.let { setCaptured(it, notify = false) }
         }
+        // Fresh starts too (a notification tap on a dead app creates the activity with no
+        // saved state); the extra is consumed on first handling so recreates stay put.
+        handleNavigateExtra(intent)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -903,6 +909,94 @@ class MainActivity : AppCompatActivity() {
             .firstOrNull { it is Inet4Address && it.isSiteLocalAddress }
             ?.hostAddress
     }.getOrNull()
+
+    /**
+     * Monitor configuration dialog (COK-26): everything about the inbound alert source is
+     * user-configurable (state-document URL, bearer token, poll period, enable). Check now
+     * runs one cycle immediately without scheduling; Save persists and (re)schedules or
+     * cancels the JobScheduler job, requesting POST_NOTIFICATIONS when enabling on 33+.
+     */
+    private fun showMonitorDialog() {
+        val sheet = layoutInflater.inflate(R.layout.dialog_monitor, null)
+        val repo = MonitorRepository(this)
+        val urlInput: EditText = sheet.findViewById(R.id.monitor_url)
+        val tokenInput: EditText = sheet.findViewById(R.id.monitor_token)
+        val periodInput: EditText = sheet.findViewById(R.id.monitor_period)
+        val enabledSwitch: Switch = sheet.findViewById(R.id.monitor_enabled)
+        val checkButton: Button = sheet.findViewById(R.id.monitor_check)
+        val statusView: TextView = sheet.findViewById(R.id.monitor_status)
+        urlInput.setText(repo.gatewayUrl.orEmpty())
+        tokenInput.setText(repo.token.orEmpty())
+        periodInput.setText(repo.periodMinutes.toString())
+        enabledSwitch.isChecked = repo.enabled
+        statusView.text = getString(
+            R.string.monitor_status_last_fmt,
+            repo.lastResult ?: getString(R.string.monitor_status_never),
+        )
+        checkButton.setOnClickListener {
+            // transient probe of what is on screen: nothing persists, so Cancel still
+            // cancels edits and the scheduled job keeps its own configuration until Save
+            val url = urlInput.text.toString().trim()
+            val token = tokenInput.text.toString().trim()
+            checkButton.isEnabled = false
+            Thread {
+                val status = MonitorPoller.runOnce(applicationContext, url, token)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    checkButton.isEnabled = true
+                    statusView.text = getString(R.string.monitor_status_last_fmt, status)
+                }
+            }.start()
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.monitor_title)
+            .setView(sheet)
+            .setPositiveButton(R.string.monitor_save) { _, _ ->
+                persistMonitorFields(repo, urlInput, tokenInput, periodInput, enabledSwitch)
+                if (repo.enabled) {
+                    // request on every enable: safe to repeat, and it must not be skipped
+                    // just because the switch was already on from a Check-now persist
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 26001)
+                    }
+                    MonitorPoller.schedule(this, repo.periodMinutes)
+                } else {
+                    MonitorPoller.cancel(this)
+                }
+            }
+            .setNegativeButton(R.string.monitor_cancel, null)
+            .create()
+        showTracked(dialog)
+    }
+
+    private fun persistMonitorFields(
+        repo: MonitorRepository,
+        url: EditText,
+        token: EditText,
+        period: EditText,
+        enabled: Switch,
+    ) {
+        repo.gatewayUrl = url.text.toString().trim()
+        repo.token = token.text.toString().trim()
+        repo.periodMinutes =
+            period.text.toString().toIntOrNull() ?: MonitorRepository.DEFAULT_PERIOD_MINUTES
+        repo.enabled = enabled.isChecked
+    }
+
+    /** A monitor notification was tapped: navigate to the alerted service. */
+    private fun handleNavigateExtra(intent: Intent?) {
+        val url = intent?.getStringExtra(MonitorPoller.EXTRA_NAVIGATE_URL) ?: return
+        // consume it: recreates (rotation, fontScale) re-deliver the same intent, and the
+        // activity must not yank the WebView back to the alerted URL every time
+        intent.removeExtra(MonitorPoller.EXTRA_NAVIGATE_URL)
+        val normalized = normalizeUrl(url)
+        if (URLUtil.isNetworkUrl(normalized)) commitUrl(normalized)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleNavigateExtra(intent)
+    }
 
     /** Shows the bookmarks bottom sheet: add by URL, tap to load, delete. */
     private fun showBookmarks() {

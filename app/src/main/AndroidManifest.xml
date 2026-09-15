@@ -4,6 +4,10 @@
 
     <!-- Required for the WebView to load remote URLs (PRD §5) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- COK-26: native notifications for inbound monitor alerts (runtime-requested on 33+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- COK-26: persisted JobScheduler jobs only re-materialize after a reboot with this -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- Backup disabled (COK-25): the bookmark and share-template preferences are
          credential-adjacent (a template can embed token text; bookmarks name private
@@ -28,6 +32,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- COK-26: periodic poll of the gateway state document -->
+        <service
+            android:name=".MonitorJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
     </application>
 
 </manifest>

@@ -115,6 +115,28 @@ UI-simulation fallback for pages the API cannot drive. Threat model: the SPI can
 read pages, and reveal cookies, exactly like a person holding the phone; it is off by
 default and token-gated, so enable it only on networks you trust.
 
+## Session monitor (native alerts when a login expires)
+
+The bell icon configures an **inbound** alert source: a state document on your own
+gateway. When a service's session dies, your monitor (Uptime Kuma) tells the gateway, and
+the app tells **you**, with a native notification: "Login needs redoing. Session for
+`<service>` needs re-login. Tap to open it."
+
+- **Wiring:** Kuma's Webhook notification provider POSTs its heartbeat payload to a small
+  script on your gateway; that script maintains the state document the app polls. Any
+  endpoint serving the documented JSON works, whatever produces it.
+- **Document contract:** `{"alerts":[{"service":"...","url":"...","state":"expired|ok","ts":0}]}`
+- **Configuration (bell icon):** state-document URL, bearer token, poll period in minutes
+  (15-240), enable switch, and a manual "Check now". Everything is persisted.
+- **Behavior:** the app polls on the configured period (JobScheduler, survives reboots),
+  notifies only on `ok -> expired` transitions (no repeat spam), and clears the
+  notification when the service reports `ok`. Tapping the notification opens the app on
+  the alerted URL.
+- **Threat model:** like the debug channel, this is an inbound control surface: the app
+  calls out to a URL you configured with a token you configured, and the payload controls
+  which URL the app navigates to on tap. Point it only at gateways you control; keep the
+  token secret. Latency is the poll period, not real time.
+
 ## Security note
 Extracted cookies **are** session credentials — anyone holding them can impersonate your
 session. Share them only over trusted channels.
