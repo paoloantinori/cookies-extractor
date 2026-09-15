@@ -1,7 +1,7 @@
 # WebView Cookie Extractor
 
 A small Android app for **extracting your own session cookies** from a website after you
-log in manually inside an in-app WebView — handy for passing them to `curl`, `wget`,
+log in manually inside an in-app WebView; handy for passing them to `curl`, `wget`,
 `yt-dlp`, or any script that needs an authenticated session.
 
 It exists because headless automation (Selenium/Playwright, etc.) is increasingly blocked
@@ -24,6 +24,8 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   announces the capture, so the login's silent terminal state is no longer mistaken for a stall.
 - **Session reset** (overflow menu): wipes cookies + WebView storage behind a confirm and
   reloads, for when a login flow gets wedged and needs a from-zero restart.
+- **Session monitor** (overflow menu): polls a state document on your gateway and raises a
+  native notification when a service's login expires (see the dedicated section).
 - **Debug channel** (overflow menu, Developer options): opt-in HTTP endpoint to pilot the app from a laptop
   (see below).
 
@@ -31,7 +33,7 @@ exactly like in a normal browser, then tap one button to pull the session cookie
 - **Passkeys / WebAuthn for third-party sites are not supported.** Android's security model
   only lets the system browser (or apps asset-linked to a site, or Google-approved
   "privileged" browser apps) assert passkey credentials for an origin. A third-party
-  WebView app like this one cannot — use a password/OTP login instead. See `PRD.md` §4.3.
+  WebView app like this one cannot; use a password/OTP login instead. See `PRD.md` §4.3.
 - No headless automation, no cross-app cookie theft, no root. It only reads cookies from
   its own WebView through the public `CookieManager` API.
 
@@ -58,7 +60,9 @@ Licensed under the Apache License 2.0 (see `LICENSE`).
 
 ## Project layout
 - `app/src/main/java/com/cookiesextractor/app/`: Kotlin source (`MainActivity`,
-  `RedirectCapture`, `BookmarksRepository`, `Bookmark`, `DebugHttp`, `DebugChannel`).
+  `RedirectCapture`, `BookmarksRepository`, `Bookmark`, `DebugHttp`, `DebugChannel`,
+  `ShareTemplate`, `ShareTemplateRepository`, `Api`, `MonitorAlerts`, `MonitorRepository`,
+  `MonitorPoller`).
 - `app/src/main/res/`: layouts, strings, themes, launcher icon.
 - `tools/gen_icon.py`: regenerates the ten legacy launcher PNGs (committed bytes are the
   Pillow output).
@@ -138,5 +142,5 @@ the app tells **you**, with a native notification: "Login needs redoing. Session
   token secret. Latency is the poll period, not real time.
 
 ## Security note
-Extracted cookies **are** session credentials — anyone holding them can impersonate your
+Extracted cookies **are** session credentials; anyone holding them can impersonate your
 session. Share them only over trusted channels.
