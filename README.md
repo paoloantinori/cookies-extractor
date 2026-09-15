@@ -22,9 +22,9 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   are caught before the WebView shows an error page, and the **full redirect URL is shared as
   one line** (a URL has no spaces, so no paste or relay hop can corrupt the code). A Snackbar
   announces the capture, so the login's silent terminal state is no longer mistaken for a stall.
-- **Session reset** (trash button): wipes cookies + WebView storage behind a confirm and
+- **Session reset** (overflow menu): wipes cookies + WebView storage behind a confirm and
   reloads, for when a login flow gets wedged and needs a from-zero restart.
-- **Debug channel** (developer options): opt-in HTTP endpoint to pilot the app from a laptop
+- **Debug channel** (overflow menu, Developer options): opt-in HTTP endpoint to pilot the app from a laptop
   (see below).
 
 ## What it does NOT do
@@ -65,7 +65,7 @@ Licensed under the Apache License 2.0 (see `LICENSE`).
 - `PRD.md`: product requirements (including the passkey limitation).
 
 ## Debug channel
-Off by default. Enable it from the developer-options (wrench) button: the dialog shows the
+Off by default. Enable it from the overflow menu (Developer options): the dialog shows the
 URL (`http://<phone-ip>:8777`) and a per-enable random token. Every request must carry it
 (`Authorization: Bearer <token>` or `?token=`); the server binds the phone's LAN address,
 and `/navigate` accepts http(s) URLs only. Endpoints (GET):
@@ -77,7 +77,7 @@ and `/navigate` accepts http(s) URLs only. Endpoints (GET):
 | `/text` | the page's rendered text (`document.body.innerText`) |
 | `/screenshot` | JPEG of the topmost window (dialog when one is open, else the activity) |
 | `/capture` | the captured OAuth parameters (404 if none held) |
-| `/clear` | wipes cookies + storage and reloads (same as the trash button) |
+| `/clear` | wipes cookies + storage and reloads (same as the overflow menu's Clear session) |
 | `/console?n=50` | the last N page-console lines (recorded only while enabled) |
 | `/tap?x=&y=` | dispatches a touch to the topmost window (dialog-aware) |
 
@@ -117,7 +117,7 @@ default and token-gated, so enable it only on networks you trust.
 
 ## Session monitor (native alerts when a login expires)
 
-The bell icon configures an **inbound** alert source: a state document on your own
+The overflow menu's Session monitor entry configures an **inbound** alert source: a state document on your own
 gateway. When a service's session dies, your monitor (Uptime Kuma) tells the gateway, and
 the app tells **you**, with a native notification: "Login needs redoing. Session for
 `<service>` needs re-login. Tap to open it."
@@ -126,7 +126,7 @@ the app tells **you**, with a native notification: "Login needs redoing. Session
   script on your gateway; that script maintains the state document the app polls. Any
   endpoint serving the documented JSON works, whatever produces it.
 - **Document contract:** `{"alerts":[{"service":"...","url":"...","state":"expired|ok","ts":0}]}`
-- **Configuration (bell icon):** state-document URL, bearer token, poll period in minutes
+- **Configuration (overflow menu, Session monitor):** state-document URL, bearer token, poll period in minutes
   (15-240), enable switch, and a manual "Check now". Everything is persisted.
 - **Behavior:** the app polls on the configured period (JobScheduler, survives reboots),
   notifies only on `ok -> expired` transitions (no repeat spam), and clears the

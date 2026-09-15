@@ -36,28 +36,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/go" />
 
-            <!-- COK-10: developer options, host the debug channel -->
-            <ImageButton
-                android:id="@+id/dev_btn"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/dev_btn_cd"
-                android:minWidth="48dp"
-                android:minHeight="48dp"
-                android:src="@android:drawable/ic_menu_manage" />
-
-            <!-- COK-9: wipe cookies + WebView storage behind a confirm dialog -->
-            <ImageButton
-                android:id="@+id/clear_session_btn"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/clear_session_btn_cd"
-                android:minWidth="48dp"
-                android:minHeight="48dp"
-                android:src="@android:drawable/ic_menu_delete" />
-
+            <!-- COK-2: bookmarks sheet -->
             <ImageButton
                 android:id="@+id/bookmarks_btn"
                 android:layout_width="wrap_content"
@@ -68,16 +47,16 @@
                 android:minHeight="48dp"
                 android:src="@android:drawable/ic_menu_sort_by_size" />
 
-            <!-- COK-26: session monitor (inbound alerts from the user's gateway) -->
+            <!-- COK-27: low-frequency actions behind one overflow menu -->
             <ImageButton
-                android:id="@+id/monitor_btn"
+                android:id="@+id/overflow_btn"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/monitor_btn_cd"
+                android:contentDescription="@string/overflow_btn_cd"
                 android:minWidth="48dp"
                 android:minHeight="48dp"
-                android:src="@android:drawable/ic_popup_reminder" />
+                android:src="@android:drawable/ic_menu_more" />
         </LinearLayout>
 
         <!-- Main content: WebView fills all remaining space (PRD §3) -->

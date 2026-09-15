@@ -133,9 +133,7 @@ class MainActivity : AppCompatActivity() {
         captureFab = findViewById(R.id.capture_fab)
         val goButton: Button = findViewById(R.id.go_button)
         val shareFab: FloatingActionButton = findViewById(R.id.share_fab)
-        val devButton: ImageButton = findViewById(R.id.dev_btn)
-        val clearSessionButton: ImageButton = findViewById(R.id.clear_session_btn)
-        val monitorButton: ImageButton = findViewById(R.id.monitor_btn)
+        val overflowButton: ImageButton = findViewById(R.id.overflow_btn)
         val bookmarksButton: ImageButton = findViewById(R.id.bookmarks_btn)
 
         configureWebView()
@@ -155,9 +153,7 @@ class MainActivity : AppCompatActivity() {
         // Long-press opens the share-message template editor instead of sharing (COK-15).
         shareFab.setOnLongClickListener { showTemplateEditor(); true }
         captureFab.setOnClickListener { onShareCapturedRedirect() }
-        devButton.setOnClickListener { showDeveloperOptions() }
-        clearSessionButton.setOnClickListener { confirmClearSession() }
-        monitorButton.setOnClickListener { showMonitorDialog() }
+        overflowButton.setOnClickListener { showOverflowMenu() }
         bookmarksButton.setOnClickListener { showBookmarks() }
 
         // Back traverses history via backCallback above (COK-7 capture release included).
@@ -996,6 +992,31 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleNavigateExtra(intent)
+    }
+
+    /**
+     * Overflow menu (COK-27) for the toolbar's low-frequency actions. A tracked dialog
+     * with the three entries instead of a PopupMenu: a popup is an untracked window the
+     * debug channel's dialog-aware /tap and /screenshot cannot see (COK-12), and it leaks
+     * on config-change recreates; the tracked dialog keeps both contracts.
+     */
+    private fun showOverflowMenu() {
+        val entries = arrayOf(
+            getString(R.string.dev_title),
+            getString(R.string.monitor_title),
+            getString(R.string.clear_session_label),
+        )
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.overflow_title)
+            .setItems(entries) { _, which ->
+                when (which) {
+                    0 -> showDeveloperOptions()
+                    1 -> showMonitorDialog()
+                    2 -> confirmClearSession()
+                }
+            }
+            .create()
+        showTracked(dialog)
     }
 
     /** Shows the bookmarks bottom sheet: add by URL, tap to load, delete. */
