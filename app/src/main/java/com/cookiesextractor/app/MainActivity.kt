@@ -50,7 +50,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeoutException
 import java.util.concurrent.TimeUnit
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -85,6 +87,12 @@ class MainActivity : AppCompatActivity() {
     // Debug channel (COK-10): null while disabled. Its token is regenerated at every
     // enable and never persisted; the developer dialog is the only place it is shown.
     @Volatile private var debugChannel: DebugChannelServer? = null
+
+    // COK-24: /api/v1/navigate?wait=load completes when the next onPageFinished fires.
+    // Armed and disarmed from the UI thread around the load; cleared on timeout so a late
+    // onPageFinished cannot cross-complete a following wait navigation. Residual, accepted:
+    // a still-loading PREVIOUS page finishing inside the wait window completes it early.
+    @Volatile private var pendingLoad: CompletableFuture<Unit>? = null
 
     // Held capture: the redirect URL plus the URL of the page that produced it (drives the
     // origin-bound release in onPageFinished). One nullable field so the pair cannot
@@ -248,6 +256,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onPageFinished(view: WebView, url: String) {
+            pendingLoad?.complete(Unit)
             // Keep the address bar honest across link/JS/redirect navigation, but never
             // clobber an un-submitted draft (only sync a field still showing the last
             // app-written value) and never write a non-http URL: an error-page echo of a
@@ -569,6 +578,7 @@ class MainActivity : AppCompatActivity() {
      * OAuth parameters and /screenshot the rendered screen, both gated behind the token.
      */
     private fun routeDebugRequest(request: DebugHttp.Request): DebugChannelServer.Response {
+        if (request.path == Api.PREFIX || request.path.startsWith(Api.PREFIX + "/")) return routeApi(request)
         return when (request.path) {
             "/status" -> withUi<String>(3000) { f -> f.complete(statusJson()) }
                 ?.let { DebugChannelServer.Response.json(it) } ?: serviceUnavailable()
@@ -622,6 +632,171 @@ class MainActivity : AppCompatActivity() {
                 DebugChannelServer.Response.ok("tapped\r\n")
             }
             else -> DebugChannelServer.Response.text(404, "Not Found", "unknown endpoint\r\n")
+        }
+    }
+
+    /**
+     * Versioned agent SPI (COK-24) on the same server and token as the legacy endpoints.
+     * JSON everywhere with one error model; Api.kt owns routing and the pure contracts.
+     * /tap and /screenshot are deliberately absent here: they are UI simulation, not the
+     * agent contract.
+     */
+    private fun routeApi(request: DebugHttp.Request): DebugChannelServer.Response =
+        when (val parsed = Api.parse(request.path, request.query)) {
+            is Api.Parse.Err -> apiJson(parsed.status, Api.errorJson(parsed.code, parsed.message))
+            is Api.Parse.Ok -> when (val outcome = executeApi(parsed.command)) {
+                is Api.Outcome.Err -> apiJson(outcome.status, Api.errorJson(outcome.code, outcome.message))
+                is Api.Outcome.Ok -> apiJson(outcome.status, outcome.json)
+            }
+        }
+
+    private fun apiJson(status: Int, body: String) = DebugChannelServer.Response(
+        status,
+        when (status) {
+            200 -> "OK"
+            400 -> "Bad Request"
+            404 -> "Not Found"
+            422 -> "Unprocessable Entity"
+            503 -> "Service Unavailable"
+            504 -> "Gateway Timeout"
+            else -> "Internal Server Error"
+        },
+        "application/json; charset=utf-8",
+        (body + "\n").toByteArray(Charsets.UTF_8),
+    )
+
+    private fun unavailable() =
+        Api.Outcome.Err(503, "unavailable", "app not reachable on the UI thread (timeout or finishing)")
+
+    private fun executeApi(cmd: Api.Command): Api.Outcome {
+        return when (cmd) {
+        Api.Command.Info -> Api.Outcome.Ok(200, Api.infoJson(BuildConfig.VERSION_NAME))
+        Api.Command.Status ->
+            withUi<String>(3000) { f ->
+                f.complete(
+                    JSONObject()
+                        .put("url", webView.url ?: JSONObject.NULL)
+                        .put("title", webView.title ?: JSONObject.NULL)
+                        .put("entry_url", entryUrl ?: JSONObject.NULL)
+                        .put("capture_held", capture != null)
+                        .put("api_level", Api.API_LEVEL)
+                        .toString()
+                )
+            }?.let { Api.Outcome.Ok(200, it) } ?: unavailable()
+        is Api.Command.Navigate -> {
+            val normalized = normalizeUrl(cmd.url)
+            if (!URLUtil.isNetworkUrl(normalized)) {
+                return Api.Outcome.Err(400, "bad_url", "only http(s) urls")
+            }
+            val signal = if (cmd.waitForLoad) CompletableFuture<Unit>() else null
+            if (!withUiSync(3000) {
+                    // arm in the same UI transaction that starts the load: onPageFinished is
+                    // delivered on this thread, so no finish can slip in before the arm
+                    if (signal != null) pendingLoad = signal
+                    loadUrl(normalized)
+                }) return unavailable()
+            if (signal == null) return Api.Outcome.Ok(200, "{\"ok\":true,\"waited\":false}")
+            val loaded = try {
+                signal.get(NAV_WAIT_LOAD_MS, TimeUnit.MILLISECONDS)
+                true
+            } catch (e: TimeoutException) {
+                if (pendingLoad === signal) pendingLoad = null
+                false
+            }
+            if (loaded) Api.Outcome.Ok(200, "{\"ok\":true,\"waited\":true}")
+            else Api.Outcome.Err(504, "load_timeout", "page did not finish loading within ${NAV_WAIT_LOAD_MS / 1000}s")
+        }
+        Api.Command.Text -> {
+            val encoded = withUi<String>(5000) { f ->
+                webView.evaluateJavascript("(document.body && document.body.innerText) || ''") { r -> f.complete(r) }
+            } ?: return unavailable()
+            Api.Outcome.Ok(200, "{\"text\":${Api.json(DebugHttp.jsonUnescape(encoded) ?: encoded)}}")
+        }
+        Api.Command.Cookies ->
+            withUi<String>(3000) { f ->
+                val url = webView.url
+                val cookies = url?.let { CookieManager.getInstance().getCookie(it) }
+                f.complete(
+                    JSONObject()
+                        .put("url", url ?: JSONObject.NULL)
+                        .put("cookies", cookies ?: JSONObject.NULL)
+                        .toString()
+                )
+            }?.let { Api.Outcome.Ok(200, it) } ?: unavailable()
+        Api.Command.Capture ->
+            withUi<Api.Outcome>(3000) { f ->
+                val held = capture?.url
+                f.complete(
+                    if (held == null) Api.Outcome.Err(404, "no_capture", "no redirect captured")
+                    else Api.Outcome.Ok(200, "{\"url\":${Api.json(held)}}")
+                )
+            } ?: unavailable()
+        Api.Command.Clear ->
+            if (withUiSync(3000) { clearSessionAndReload() }) Api.Outcome.Ok(200, "{\"ok\":true}")
+            else unavailable()
+        Api.Command.Bookmarks ->
+            Api.Outcome.Ok(
+                200,
+                JSONObject()
+                    .put("bookmarks", JSONArray(repo.load().map { JSONObject().put("title", it.title).put("url", it.url) }))
+                    .toString(),
+            )
+        is Api.Command.BookmarkAdd -> {
+            val normalized = normalizeUrl(cmd.url)
+            if (!isLoadableUrl(normalized)) {
+                return Api.Outcome.Err(400, "bad_url", "scheme not loadable by the WebView")
+            }
+            val host = Uri.parse(normalized).host.orEmpty().ifBlank { normalized }
+            if (!withUiSync(3000) { repo.add(Bookmark(cmd.title ?: host, normalized)) }) return unavailable()
+            Api.Outcome.Ok(200, "{\"ok\":true}")
+        }
+        is Api.Command.BookmarkDelete -> {
+            // normalize like add does, or delete-by-bare-host silently misses
+            if (!withUiSync(3000) { repo.remove(Bookmark("", normalizeUrl(cmd.url))) }) return unavailable()
+            Api.Outcome.Ok(200, "{\"ok\":true}")
+        }
+        Api.Command.Template -> {
+            val stored = shareTemplateRepo.load()
+            Api.Outcome.Ok(
+                200,
+                JSONObject()
+                    .put("template", stored ?: JSONObject.NULL)
+                    .put("using_default", stored == null)
+                    .toString(),
+            )
+        }
+        is Api.Command.TemplateSet -> {
+            val trimmed = cmd.template.trim()
+            if (!withUiSync(3000) {
+                    if (trimmed.isEmpty()) shareTemplateRepo.clear() else shareTemplateRepo.save(trimmed)
+                }) return unavailable()
+            Api.Outcome.Ok(200, if (trimmed.isEmpty()) "{\"ok\":true,\"cleared\":true}" else "{\"ok\":true,\"cleared\":false}")
+        }
+        is Api.Command.Console -> {
+            val channel = debugChannel ?: return unavailable()
+            Api.Outcome.Ok(200, JSONObject().put("lines", JSONArray(channel.console.latest(cmd.lines))).toString())
+        }
+        is Api.Command.Fill -> {
+            val encoded = withUi<String>(5000) { f ->
+                webView.evaluateJavascript(Api.fillScript(cmd.selector, cmd.value)) { r -> f.complete(r) }
+            } ?: return unavailable()
+            when (DebugHttp.jsonUnescape(encoded) ?: encoded) {
+                "ok" -> Api.Outcome.Ok(200, "{\"result\":\"ok\"}")
+                "not-found" -> Api.Outcome.Err(404, "not_found", "no element matched the selector")
+                "unsupported" -> Api.Outcome.Err(422, "unsupported", "matched element is not an input/textarea")
+                else -> Api.Outcome.Err(500, "unexpected", "fill returned an unknown result")
+            }
+        }
+        is Api.Command.Submit -> {
+            val encoded = withUi<String>(5000) { f ->
+                webView.evaluateJavascript(Api.submitScript(cmd.selector)) { r -> f.complete(r) }
+            } ?: return unavailable()
+            when (DebugHttp.jsonUnescape(encoded) ?: encoded) {
+                "ok" -> Api.Outcome.Ok(200, "{\"result\":\"ok\"}")
+                "not-found" -> Api.Outcome.Err(404, "not_found", "no element matched the selector")
+                else -> Api.Outcome.Err(500, "unexpected", "submit returned an unknown result")
+            }
+        }
         }
     }
 
@@ -797,5 +972,6 @@ class MainActivity : AppCompatActivity() {
         private const val DEBUG_PORT = 8777
         private const val STATE_CAPTURED_REDIRECT = "captured_redirect"
         private const val STATE_ENTRY_URL = "entry_url"
+        private const val NAV_WAIT_LOAD_MS = 10_000L
     }
 }

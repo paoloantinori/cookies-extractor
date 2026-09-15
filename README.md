@@ -86,6 +86,35 @@ except while testing, and only on networks you trust. Note (2026-09-08): Android
 Local Network Permission (staged in Android 16, enforcement expected around 2026 Q2) that
 will require granting the app local-network access for this server to accept connections.
 
+## Agent SPI (`/api/v1`)
+
+The same channel also serves a versioned, JSON API for agents that need to drive the app
+programmatically **without simulating UI touches**. One server, one token: every request
+carries the channel token exactly like the legacy endpoints. `GET /api/v1/info` returns
+the API level and the capability list; agents should feature-detect on it rather than
+hardcode. Errors are always `{"error":{"code":"...","message":"..."}}`. Mutations are
+GET-only, matching the channel's parser.
+
+| endpoint | does / returns |
+|---|---|
+| `/api/v1/info` | name, version, `api_level`, `capabilities` (discovery) |
+| `/api/v1/status` | current url/title, entry url, capture held, api level |
+| `/api/v1/navigate?url=&wait=load` | loads the URL; `wait=load` answers after `onPageFinished` (10s cap, 504 on timeout). The channel serves one connection at a time: a waiting navigate holds it until it answers |
+| `/api/v1/text` | `{"text": ...}` rendered page text |
+| `/api/v1/cookies` | `{"url": ..., "cookies": ...}` for the current page |
+| `/api/v1/capture` | `{"url": ...}` the captured redirect (404 `no_capture` if none) |
+| `/api/v1/clear` | wipes cookies + storage and reloads |
+| `/api/v1/bookmarks` | list; `.../add?url=&title=` and `.../delete?url=` mutate |
+| `/api/v1/template` / `.../set?t=` | read / replace the share template (empty `t` clears) |
+| `/api/v1/console?n=50` | last N page-console lines |
+| `/api/v1/fill?selector=&value=` | sets an input/textarea via JS (native setter + input/change events); selector is CSS, a bare name falls back to `[name=...]` |
+| `/api/v1/submit?selector=` | clicks the element, or submits the first form (`requestSubmit` then `submit`) |
+
+`/tap` and `/screenshot` are deliberately NOT part of the SPI contract: they exist as the
+UI-simulation fallback for pages the API cannot drive. Threat model: the SPI can navigate,
+read pages, and reveal cookies, exactly like a person holding the phone; it is off by
+default and token-gated, so enable it only on networks you trust.
+
 ## Security note
 Extracted cookies **are** session credentials — anyone holding them can impersonate your
 session. Share them only over trusted channels.
