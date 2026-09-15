@@ -30,22 +30,21 @@
                 android:imeOptions="actionGo"
                 android:maxLines="1" />
 
+            <!-- COK-28: compact borderless Go. The Material default ate ~88dp of width for
+                 two letters; minWidth=0 with side padding keeps it narrow, while minHeight
+                 stays 48dp so the touch target fills the row (set by the taller URL field)
+                 instead of collapsing to the text line. -->
             <Button
                 android:id="@+id/go_button"
+                style="@style/Widget.AppCompat.Button.Borderless"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/go" />
-
-            <!-- COK-2: bookmarks sheet -->
-            <ImageButton
-                android:id="@+id/bookmarks_btn"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/bookmarks_btn_cd"
-                android:minWidth="48dp"
+                android:layout_gravity="center_vertical"
+                android:minWidth="0dp"
                 android:minHeight="48dp"
-                android:src="@android:drawable/ic_menu_sort_by_size" />
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/go" />
 
             <!-- COK-27: low-frequency actions behind one overflow menu -->
             <ImageButton

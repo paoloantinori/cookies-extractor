@@ -17,7 +17,7 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   both shares (cookies and captured OAuth tokens). Placeholders: `{payload}` (the
   cookie/token text), `{url}`, `{title}`, `{host}`, `{date}` (ISO-8601). Unknown
   placeholders stay as written; an empty template restores the default message.
-- **Bookmarks**: save the current page, tap to reload it later, swipe/delete to remove.
+- **Bookmarks** (overflow menu): add by URL or current entry URL, tap to reload, delete.
 - **OAuth redirect capture**: non-http OAuth redirects (e.g. `urn:ietf:wg:oauth:2.0:oob?code=…`)
   are caught before the WebView shows an error page, and the **full redirect URL is shared as
   one line** (a URL has no spaces, so no paste or relay hop can corrupt the code). A Snackbar

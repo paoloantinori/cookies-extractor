@@ -134,7 +134,6 @@ class MainActivity : AppCompatActivity() {
         val goButton: Button = findViewById(R.id.go_button)
         val shareFab: FloatingActionButton = findViewById(R.id.share_fab)
         val overflowButton: ImageButton = findViewById(R.id.overflow_btn)
-        val bookmarksButton: ImageButton = findViewById(R.id.bookmarks_btn)
 
         configureWebView()
 
@@ -154,7 +153,6 @@ class MainActivity : AppCompatActivity() {
         shareFab.setOnLongClickListener { showTemplateEditor(); true }
         captureFab.setOnClickListener { onShareCapturedRedirect() }
         overflowButton.setOnClickListener { showOverflowMenu() }
-        bookmarksButton.setOnClickListener { showBookmarks() }
 
         // Back traverses history via backCallback above (COK-7 capture release included).
         onBackPressedDispatcher.addCallback(this, backCallback)
@@ -995,25 +993,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Overflow menu (COK-27) for the toolbar's low-frequency actions. A tracked dialog
-     * with the three entries instead of a PopupMenu: a popup is an untracked window the
-     * debug channel's dialog-aware /tap and /screenshot cannot see (COK-12), and it leaks
-     * on config-change recreates; the tracked dialog keeps both contracts.
+     * Overflow menu for every toolbar action except Go: Bookmarks, Developer options,
+     * Session monitor, Clear session. A tracked dialog instead of a PopupMenu: a popup is
+     * an untracked window the debug channel's dialog-aware /tap and /screenshot cannot
+     * see (COK-12), and it leaks on config-change recreates. Labels and handlers are
+     * declared as one list so a reorder can never desync them (COK-28 review).
      */
     private fun showOverflowMenu() {
-        val entries = arrayOf(
-            getString(R.string.dev_title),
-            getString(R.string.monitor_title),
-            getString(R.string.clear_session_label),
+        val entries = listOf(
+            R.string.bookmarks_title to { showBookmarks() },
+            R.string.dev_title to { showDeveloperOptions() },
+            R.string.monitor_title to { showMonitorDialog() },
+            R.string.clear_session_label to { confirmClearSession() },
         )
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.overflow_title)
-            .setItems(entries) { _, which ->
-                when (which) {
-                    0 -> showDeveloperOptions()
-                    1 -> showMonitorDialog()
-                    2 -> confirmClearSession()
-                }
+            .setItems(entries.map { getString(it.first) }.toTypedArray()) { _, which ->
+                entries[which].second()
             }
             .create()
         showTracked(dialog)
