@@ -47,6 +47,30 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 Toolchain: AGP 8.10.0, Kotlin 2.2.0, Gradle wrapper 8.11.1.
 
+## Release signing
+
+Release builds require signing credentials in
+`~/.cookies-extractor/keystore.properties` (outside the repository; never commit it):
+
+```properties
+store.file=/absolute/path/to/release.keystore
+store.password=...
+key.alias=cookies-extractor-release
+key.password=...
+```
+
+Generate a fresh key (one per app; do not reuse another app's certificate):
+
+```bash
+keytool -genkeypair -v -keystore release.keystore -alias cookies-extractor-release \
+  -keyalg RSA -keysize 2048 -validity 10000
+```
+
+With the file in place, `./gradlew assembleRelease` produces a signed APK; without it,
+debug builds and tests run normally while release builds fail with a pointer to this
+section. Losing the key means every existing sideload install needs uninstall+reinstall:
+back it up.
+
 ## Keeping personal data out
 
 Development on this project runs with a pre-commit guard (not shipped in this repository)
