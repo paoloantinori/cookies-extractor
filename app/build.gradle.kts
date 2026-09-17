@@ -18,6 +18,12 @@ val hasReleaseCredentials = !releaseKeystore.isEmpty() &&
     listOf("store.file", "store.password", "key.alias", "key.password")
         .all { !releaseKeystore.getProperty(it).isNullOrBlank() }
 
+// F-Droid's build server compiles release builds unsigned by design. Its recipe's
+// prebuild creates this marker (see metadata in the fdroiddata fork) as the explicit,
+// in-source opt-in that lets an unsigned release build succeed there. Locally the
+// marker never exists, so the validator below keeps failing unsigned release builds.
+val allowUnsignedRelease = file("fdroid-unsigned-marker").exists()
+
 // Fails loudly when the file exists but a key is missing or blank.
 fun releaseCredential(key: String): String =
     releaseKeystore.getProperty(key)?.takeIf { it.isNotBlank() }
@@ -74,7 +80,7 @@ android {
     // hint, while every other invocation (help, assembleDebug, tests) stays green.
     val validateReleaseCredentials = tasks.register("validateReleaseCredentials") {
         doLast {
-            check(hasReleaseCredentials) {
+            check(hasReleaseCredentials || allowUnsignedRelease) {
                 "release build requires $keystorePropertiesFile (absolute store.file, " +
                     "store.password, key.alias, key.password); see README, Release signing"
             }
