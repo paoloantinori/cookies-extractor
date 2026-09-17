@@ -10,10 +10,10 @@ necessiti di una sessione autenticata.
 
 Cosa contiene:
 
-- Barra indirizzi e WebView integrata; login con password, 2FA, OTP o la
+- Barra degli indirizzi e WebView integrata; login con password, 2FA, OTP o la
   maggior parte dei flussi SSO con redirect. I passkey per siti di
   terze parti non funzionano in una WebView di terze parti (modello di
-  privilegi di Android); il README spiega perche'.
+  privilegi di Android); il README spiega perché.
 - I redirect OAuth non-http vengono catturati prima della pagina di
   errore e condivisi su una sola riga, così nessun relay può
   corrompere il codice di autorizzazione.

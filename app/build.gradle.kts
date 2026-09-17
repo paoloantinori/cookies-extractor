@@ -73,7 +73,6 @@ android {
     // only release build tasks depend on fails at execution time with the recovery
     // hint, while every other invocation (help, assembleDebug, tests) stays green.
     val validateReleaseCredentials = tasks.register("validateReleaseCredentials") {
-        onlyIf { gradle.taskGraph.hasTask(":app:assembleRelease") }
         doLast {
             check(hasReleaseCredentials) {
                 "release build requires $keystorePropertiesFile (absolute store.file, " +
