@@ -1,0 +1,37 @@
+Uno strumento per sviluppatori per ispezionare e verificare informazioni
+di sessione.
+
+L'automazione headless è sempre più bloccata da QR di 2FA, sfide
+interattive e filtri anti-bot. Questa app prende la strada opposta: fai
+il login a mano, esattamente come in un browser normale, e con un tap
+ottieni i cookie di sessione del dominio caricato e li passi al foglio
+di condivisione Android, pronti per curl, wget o qualsiasi script che
+necessiti di una sessione autenticata.
+
+Cosa contiene:
+
+- Barra indirizzi e WebView integrata; login con password, 2FA, OTP o la
+  maggior parte dei flussi SSO con redirect. I passkey per siti di
+  terze parti non funzionano in una WebView di terze parti (modello di
+  privilegi di Android); il README spiega perche'.
+- I redirect OAuth non-http vengono catturati prima della pagina di
+  errore e condivisi su una sola riga, così nessun relay può
+  corrompere il codice di autorizzazione.
+- Un template di condivisione con anteprima live modella il testo
+  condiviso: segnaposto per payload, URL, titolo, host e data, ad
+  esempio un comando curl pronto da incollare.
+- Segnalibri con aggiunta tramite URL e memoria dell'URL inserito: quello
+  che hai digitato, non dove ti ha portato il redirect.
+- Un monitor di sessione: puntalo a un documento di stato sul tuo
+  gateway e ricevi una notifica nativa quando un login scade.
+- Un canale di debug opzionale con token e una API versionata per agenti
+  (/api/v1) per pilotare l'app via programma: navigare, leggere testo e
+  cookie, riempire e inviare form. Spento di default; il README
+  documenta ogni endpoint e il modello di minaccia.
+
+Legge solo i cookie della propria WebView attraverso l'API pubblica
+CookieManager: niente root, niente accesso tra app, niente automazione
+di altre app. I cookie estratti sono credenziali di sessione:
+condividili solo su canali fidati.
+
+Licenza Apache 2.0.

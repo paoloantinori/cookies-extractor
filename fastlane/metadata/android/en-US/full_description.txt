@@ -1,0 +1,33 @@
+A developer tool for inspecting and verifying session information.
+
+Headless automation is increasingly blocked by 2FA QR codes, interactive
+challenges, and anti-bot flows. This app takes the other road: you log in
+by hand, exactly like in a normal browser, then one tap pulls the session
+cookies for the loaded domain and hands them to the Android share sheet,
+ready for curl, wget, or any script that needs an authenticated session.
+
+What is inside:
+
+- Address bar and in-app WebView; log in with password, 2FA, OTP, or most
+  SSO-redirect flows. Passkeys for third-party sites do not work in a
+  third-party WebView (Android privilege model); the README explains why.
+- Non-http OAuth redirects are caught before an error page appears and
+  shared as one line, so relays cannot corrupt the authorization code.
+- A share template with live preview shapes the shared text: placeholders
+  for payload, URL, title, host, and date, for example a ready-to-paste
+  curl command.
+- Bookmarks with add-by-URL and entry-URL memory: what you typed, not
+  where the redirect landed.
+- A session monitor: point it at a state document on your own gateway and
+  get a native notification when a login expires.
+- An opt-in, token-gated debug channel with a versioned agent API
+  (/api/v1) to drive the app programmatically: navigate, read text and
+  cookies, fill and submit forms. Off by default; the README documents
+  every endpoint and the threat model.
+
+It reads only the cookies of its own WebView through the public
+CookieManager API: no root, no cross-app access, no automation of other
+apps. Extracted cookies are session credentials; share them only over
+channels you trust.
+
+Licensed under the Apache License 2.0.

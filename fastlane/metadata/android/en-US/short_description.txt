@@ -1,0 +1,1 @@
+Extract your own session cookies after a manual login
