@@ -305,21 +305,22 @@ class MainActivity : AppCompatActivity() {
 
     /** Reads session cookies and shares them (PRD §4.4, multi-domain COK-30). */
     private fun onExtractCookies() {
-        if (isStructuredCookieFormat()) {
-            val json = extractCookiesStructured() ?: run {
-                Toast.makeText(this, R.string.toast_no_cookies, Toast.LENGTH_SHORT).show()
-                return
-            }
-            if (BuildConfig.DEBUG) Log.i(TAG, "Structured cookies:\n$json")
-            shareCookiesStructured(json)
+        val structured = isStructuredCookieFormat()
+        // one nullable payload for both formats: null means the jar gave us nothing
+        val payload =
+            if (structured) extractCookiesStructured()
+            else extractCookiesFlat().ifBlank { null }
+        if (payload == null) {
+            Toast.makeText(this, R.string.toast_no_cookies, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // COK-19: cookie values reach logcat in DEBUG builds only, one shared copy
+        if (BuildConfig.DEBUG) Log.i(TAG, "Cookies for ${webView.url}:\n$payload")
+        if (structured) {
+            // raw JSON is the message: no prose preamble, machine-parseable end to end
+            shareViaChooser(payload, null, R.string.share_chooser_title)
         } else {
-            val cookies = extractCookiesFlat()
-            if (cookies.isBlank()) {
-                Toast.makeText(this, R.string.toast_no_cookies, Toast.LENGTH_SHORT).show()
-            } else {
-                if (BuildConfig.DEBUG) Log.i(TAG, "Cookies for ${webView.url}:\n$cookies")
-                shareCookies(cookies)
-            }
+            shareCookies(payload)
         }
     }
 
@@ -341,19 +342,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun shareCookies(cookies: String) =
         shareViaChooser(cookies, R.string.share_preamble, R.string.share_chooser_title)
-
-    /**
-     * Structured JSON is the payload itself: no prose preamble, so the share text is
-     * parseable as raw JSON by machine consumers (the Mac gateway sends it invariato).
-     * A user-defined template still wraps it if one is configured.
-     */
-    private fun shareCookiesStructured(json: String) {
-        val template = shareTemplateRepo.load()
-        val message =
-            if (template != null) ShareTemplate.render(template, shareContext(json))
-            else json
-        fireShareIntent(message, R.string.share_chooser_title)
-    }
 
     private fun isStructuredCookieFormat(): Boolean =
         getPreferences(MODE_PRIVATE).getBoolean(PREF_STRUCTURED_COOKIES, true)
@@ -428,8 +416,9 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Fires the Android share sheet (ACTION_SEND, text/plain) wrapped in Intent.createChooser()
-     * per PRD §4.5. A stored template (COK-15) shapes the whole message; without one the
-     * preamble string keeps today's output byte-identical.
+     * per PRD §4.5. A stored template (COK-15) shapes the whole message; without one a
+     * null preamble ships the payload as the message (the structured JSON contract) and
+     * a non-null preamble keeps the flat output byte-identical.
      */
     private fun shareViaChooser(
         text: String,

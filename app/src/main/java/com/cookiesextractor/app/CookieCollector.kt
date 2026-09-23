@@ -14,24 +14,36 @@ object CookieCollector {
         "https://www.google.it/",
     )
 
+    /** DNS-name/IPv6-literal host alphabet (brackets already stripped, dots and IPv6 colons kept). */
+    private val HOST_CHARS = Regex("[a-z0-9.:\\-]+")
+
     /**
      * Parses a user-supplied extra-URL list: one entry per line, '#' comments and blank
      * lines skipped, scheme-less entries normalized to https, invalid ones dropped
      * silently (the user list is edited by hand in a dialog; typos must not break the
-     * share). Pure JVM for unit tests.
+     * share). Only http(s) entries survive; anything else can never contribute cookies.
+     * Pure JVM for unit tests.
      */
     fun parseExtraUrls(raw: String): List<String> =
         raw.lines().mapNotNull { line ->
             val entry = line.substringBefore('#').trim()
             if (entry.isEmpty()) return@mapNotNull null
-            // a real scheme token has no dot; "hosthttps://x" (an IME-joined line) must
-            // be rejected, not stored verbatim as a never-matching URL
-            if (entry.contains("://") && entry.substringBefore("://").contains(".")) return@mapNotNull null
+            // a real scheme token has no dot and no slash; "hosthttps://x" (an IME-joined
+            // line) must be rejected, not stored verbatim as a never-matching URL, while
+            // a legitimate path or query before an embedded https still parses fine
+            // only http(s) can ever contribute cookies (and an IME-joined line like
+            // "localhosthttps://x" carries a bogus scheme token); reject any other
+            // scheme up front instead of storing a never-matching URL verbatim
+            val schemePart = entry.substringBefore("://", missingDelimiterValue = "")
+            if (schemePart.isNotEmpty() && schemePart != "http" && schemePart != "https") return@mapNotNull null
             val withScheme =
-                if (entry.contains("://")) entry else "https://$entry"
+                if (schemePart.isNotEmpty()) entry else "https://$entry"
             val host = hostFromUrl(withScheme) ?: return@mapNotNull null
-            if (host.isEmpty() || !host.contains(".")) null else withScheme
-        }
+            // dotless intranet names and bracketed IPv6 are valid extras (domainLabel
+            // labels them with the full host); anything with whitespace or characters
+            // outside the host alphabet can never match a getCookie query
+            if (host.isEmpty() || !HOST_CHARS.matches(host)) null else withScheme
+        }.distinct()
 
     fun parseCookieHeader(header: String, domain: String): List<Cookie> {
         if (header.isBlank()) return emptyList()
@@ -52,18 +64,21 @@ object CookieCollector {
 
     /**
      * Public suffixes with more than one label that matter for logins (curated, not the
-     * full PSL: 24 entries cover the compound ccTLD families a real IdP sits under).
+     * full PSL: 52 entries cover the compound ccTLD families a real IdP sits under).
      * Matched against the host tail, longest first, so ".ac.uk" wins over a hypothetical
      * ".uk". Pure data, no dependency.
      */
     private val COMPOUND_SUFFIXES = listOf(
-        "ac.uk", "co.uk", "gov.uk", "org.uk",
-        "co.jp", "or.jp", "ne.jp", "ac.jp",
-        "com.au", "net.au", "org.au", "co.nz",
-        "com.br", "com.mx", "com.ar", "com.tr",
-        "co.in", "co.za", "com.cn", "com.tw",
-        "com.hk", "com.sg", "co.kr", "com.ua",
-    )
+        "ac.uk", "co.uk", "gov.uk", "org.uk", "me.uk", "net.uk",
+        "co.jp", "or.jp", "ne.jp", "ac.jp", "go.jp",
+        "com.au", "net.au", "org.au", "co.nz", "net.nz", "org.nz",
+        "com.br", "net.br", "org.br", "com.mx", "com.ar", "com.tr",
+        "co.in", "net.in", "org.in", "co.za", "com.cn", "net.cn",
+        "com.tw", "com.hk", "com.sg", "co.kr", "com.ua",
+        "co.il", "org.il", "co.th", "or.th", "com.pl", "com.ph",
+        "com.vn", "com.my", "com.co", "com.pe", "com.eg", "com.pk",
+        "com.bd", "co.id", "or.id", "com.sa", "com.ng", "com.gh",
+    ).distinct()
 
     /**
      * Registrable domain (eTLD+1) from a URL, dot-prefixed. Compound suffixes from the
@@ -127,13 +142,16 @@ object CookieCollector {
     }
 
     fun collect(sources: List<Pair<String, String?>>): List<Cookie> {
-        val seen = mutableSetOf<Pair<String, String>>()
+        val seen = mutableSetOf<Triple<String, String, String>>()
         val cookies = mutableListOf<Cookie>()
         for ((url, header) in sources) {
             if (header.isNullOrBlank()) continue
             val domain = domainLabel(url) ?: continue
             for (cookie in parseCookieHeader(header, domain)) {
-                val key = cookie.name to cookie.domain
+                // identity includes the value: the same cookie read from two hosts of
+                // one family still merges, but distinct same-named values (host-only
+                // SESSION per subdomain) all ship instead of first-wins
+                val key = Triple(cookie.name, cookie.domain, cookie.value)
                 if (seen.add(key)) cookies.add(cookie)
             }
         }

@@ -107,15 +107,17 @@ class CookieCollectorTest {
     // ---- collect (dedup + ordering) ----
 
     @Test
-    fun deduplicatesByNameAndDomain() {
+    fun deduplicatesIdenticalCookiesAcrossFamilyHosts() {
+        // the SAME cookie value read from two hosts of the Google family merges;
+        // distinct values with the same name now both ship (identity includes value)
         val sources = listOf(
-            "https://accounts.google.com/" to "SID=first; HSID=a",
-            "https://www.google.com/" to "SID=second; NID=b",
+            "https://accounts.google.com/" to "SID=same; HSID=a",
+            "https://www.google.com/" to "SID=same; NID=b",
         )
         val cookies = CookieCollector.collect(sources)
         val sid = cookies.filter { it.name == "SID" }
         assertEquals(1, sid.size)
-        assertEquals("first", sid[0].value)
+        assertEquals("same", sid[0].value)
         assertEquals(3, cookies.size)
     }
 
@@ -226,7 +228,27 @@ class CookieCollectorTest {
 
     @Test
     fun parseExtraUrlsDropsInvalidEntriesSilently() {
-        assertEquals(emptyList<String>(), CookieCollector.parseExtraUrls("not a url\n://broken\nlocalhost\n%%%\n"))
+        // "not a url" has a space in the host; "%%%" has no parseable host
+        assertEquals(emptyList<String>(), CookieCollector.parseExtraUrls("not a url\n%%%\n"))
+    }
+
+    @Test
+    fun parseExtraUrlsAcceptsDotlessAndRejectsBrokenSchemes() {
+        // localhost is a valid extra (full-host labeling downstream); scheme-only and
+        // non-cookie schemes are dropped
+        assertEquals(
+            listOf("https://localhost"),
+            CookieCollector.parseExtraUrls("localhost\n://broken\nftp://files.example\n"),
+        )
+    }
+
+    @Test
+    fun parseExtraUrlsRejectsDotFreeImeJoins() {
+        // "localhosthttps://x" has a bogus scheme token with no dot: still garbage
+        assertEquals(
+            emptyList<String>(),
+            CookieCollector.parseExtraUrls("localhosthttps://gitlab.example.com/"),
+        )
     }
 
     @Test
@@ -272,20 +294,17 @@ class CookieCollectorTest {
     }
 
     @Test
-    fun sameRegistrableDomainUnderCompoundTldStillMergesFirstWins() {
-        // gitlab and wiki share .mycompany.co.uk: same-named cookies merge first-wins.
-        // Deliberate (CookieManager exposes no per-cookie scope, and the Google family
-        // relies on this merge for its overlapping multi-host cookies), recorded as the
-        // known limitation of the version-2 format.
+    fun sameRegistrableDomainDistinctValuesBothShip() {
+        // host-only SESSION per subdomain: distinct values are meaningful and must all
+        // ship (review finding: first-wins authenticated the wrong session)
         val cookies = CookieCollector.collect(
             listOf(
                 "https://gitlab.mycompany.co.uk/" to "SESSION=gitlab",
                 "https://wiki.mycompany.co.uk/" to "SESSION=wiki",
             ),
         )
-        assertEquals(1, cookies.size)
-        assertEquals(".mycompany.co.uk", cookies.single().domain)
-        assertEquals("gitlab", cookies.single().value)
+        assertEquals(setOf("gitlab", "wiki"), cookies.map { it.value }.toSet())
+        assertEquals(setOf(".mycompany.co.uk"), cookies.map { it.domain }.toSet())
     }
 
     @Test

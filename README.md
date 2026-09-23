@@ -134,7 +134,7 @@ GET-only, matching the channel's parser.
 | `/api/v1/status` | current url/title, entry url, capture held, api level |
 | `/api/v1/navigate?url=&wait=load` | loads the URL; `wait=load` answers after `onPageFinished` (10s cap, 504 on timeout). The channel serves one connection at a time: a waiting navigate holds it until it answers |
 | `/api/v1/text` | `{"text": ...}` rendered page text |
-| `/api/v1/cookies` | `{"url": ..., "cookies": ...}` for the current page; `?format=structured` returns the version-2 multi-domain JSON, the same document the share FAB emits with the structured format active (the FAB's flat/structured toggle does not affect the API) |
+| `/api/v1/cookies` | `{"url": ..., "cookies": ...}` for the current page; `?format=structured` returns the version-2 multi-domain JSON, the same document the share FAB emits with the structured format active (the FAB's flat/structured toggle does not affect the API; 404 `no_cookies` when the jar is empty) |
 | `/api/v1/capture` | `{"url": ...}` the captured redirect (404 `no_capture` if none) |
 | `/api/v1/clear` | wipes cookies + storage and reloads |
 | `/api/v1/bookmarks` | list; `.../add?url=&title=` and `.../delete?url=` mutate |
