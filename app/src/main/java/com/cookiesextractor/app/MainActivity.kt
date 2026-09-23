@@ -3,6 +3,7 @@ package com.cookiesextractor.app
 import android.app.Dialog
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import android.os.Build
@@ -12,10 +13,13 @@ import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.Log
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
+import android.text.InputFilter
+import android.text.InputType
 import android.view.inputmethod.EditorInfo
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
@@ -78,6 +82,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var captureFab: FloatingActionButton
     private val repo by lazy { BookmarksRepository(this) }
     private val shareTemplateRepo by lazy { ShareTemplateRepository(this) }
+    private val extraUrlsRepo by lazy { ExtraUrlsRepository(this) }
     private var devDialog: AlertDialog? = null
 
     // COK-12: every open dialog, last-shown last. Dialogs are separate windows, so the
@@ -323,12 +328,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun extractCookiesStructured(): String? {
         val cm = CookieManager.getInstance()
-        // a null loaded URL (no page yet) must not hide the EXTRA_URLS jar: only the
-        // loaded source is dropped, the fixed sources are always consulted
+        // a null loaded URL (no page yet) must not hide the extra-domains jar: only
+        // the loaded source is dropped, the configured sources are always consulted
         val loadedUrl = webView.url
         val sources = listOfNotNull(
             loadedUrl?.let { it to cm.getCookie(it) },
-        ) + CookieCollector.EXTRA_URLS.map { it to cm.getCookie(it) }
+        ) + extraUrlsRepo.load().map { it to cm.getCookie(it) }
         val cookies = CookieCollector.collect(sources)
         if (cookies.isEmpty()) return null
         return CookieCollector.toJson(cookies)
@@ -1074,12 +1079,53 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.monitor_title) to { showMonitorDialog() },
             getString(if (structured) R.string.cookie_format_to_flat else R.string.cookie_format_to_structured)
                 to { toggleCookieFormat() },
+            getString(R.string.extra_urls_menu) to { showExtraUrlsEditor() },
             getString(R.string.clear_session_label) to { confirmClearSession() },
         )
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.overflow_title)
             .setItems(entries.map { it.first }.toTypedArray()) { _, which ->
                 entries[which].second()
+            }
+            .create()
+        showTracked(dialog)
+    }
+
+    /**
+     * Extra-domains editor (COK-32): the user's list of domains the structured cookie
+     * share collects beyond the loaded URL, one per line ('#' comments, bare hosts
+     * become https://). Save parses and normalizes; an all-invalid edit saves the empty
+     * list, which is a deliberate loaded-URL-only mode, never a broken share.
+     */
+    private fun showExtraUrlsEditor() {
+        val input = EditText(this).apply {
+            setText(extraUrlsRepo.loadAsText())
+            hint = getString(R.string.extra_urls_hint)
+            minLines = 4
+            gravity = Gravity.TOP or Gravity.START
+            setTypeface(Typeface.MONOSPACE)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            filters = arrayOf(InputFilter.LengthFilter(MAX_EXTRA_URLS_CHARS))
+        }
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            addView(TextView(this@MainActivity).apply { setText(R.string.extra_urls_legend) }, lp)
+            addView(input, lp)
+        }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.extra_urls_title)
+            .setView(column)
+            .setPositiveButton(R.string.extra_urls_save) { _, _ ->
+                extraUrlsRepo.save(CookieCollector.parseExtraUrls(input.text.toString()))
+                Toast.makeText(this, R.string.toast_extra_urls_saved, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(R.string.extra_urls_cancel, null)
+            .setNeutralButton(R.string.extra_urls_reset) { _, _ ->
+                extraUrlsRepo.resetToDefault()
+                Toast.makeText(this, R.string.toast_extra_urls_reset, Toast.LENGTH_SHORT).show()
             }
             .create()
         showTracked(dialog)
@@ -1153,6 +1199,7 @@ class MainActivity : AppCompatActivity() {
         private const val DEBUG_PORT = 8777
         private const val STATE_CAPTURED_REDIRECT = "captured_redirect"
         private const val STATE_ENTRY_URL = "entry_url"
+        private const val MAX_EXTRA_URLS_CHARS = 4000
         private const val NAV_WAIT_LOAD_MS = 10_000L
         private const val PREF_STRUCTURED_COOKIES = "structured_cookies"
     }

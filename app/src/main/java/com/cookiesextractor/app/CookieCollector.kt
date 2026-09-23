@@ -8,11 +8,27 @@ object CookieCollector {
 
     data class Cookie(val name: String, val value: String, val domain: String)
 
-    val EXTRA_URLS = listOf(
+    val DEFAULT_EXTRA_URLS = listOf(
         "https://accounts.google.com/",
         "https://www.google.com/",
         "https://www.google.it/",
     )
+
+    /**
+     * Parses a user-supplied extra-URL list: one entry per line, '#' comments and blank
+     * lines skipped, scheme-less entries normalized to https, invalid ones dropped
+     * silently (the user list is edited by hand in a dialog; typos must not break the
+     * share). Pure JVM for unit tests.
+     */
+    fun parseExtraUrls(raw: String): List<String> =
+        raw.lines().mapNotNull { line ->
+            val entry = line.substringBefore('#').trim()
+            if (entry.isEmpty()) return@mapNotNull null
+            val withScheme =
+                if (entry.contains("://")) entry else "https://$entry"
+            val host = hostFromUrl(withScheme) ?: return@mapNotNull null
+            if (host.isEmpty() || !host.contains(".")) null else withScheme
+        }
 
     fun parseCookieHeader(header: String, domain: String): List<Cookie> {
         if (header.isBlank()) return emptyList()

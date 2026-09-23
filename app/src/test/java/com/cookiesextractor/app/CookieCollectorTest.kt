@@ -199,8 +199,38 @@ class CookieCollectorTest {
     }
 
     @Test
-    fun extraUrlsListIsNonEmpty() {
-        assertTrue(CookieCollector.EXTRA_URLS.isNotEmpty())
-        assertTrue(CookieCollector.EXTRA_URLS.all { it.startsWith("https://") })
+    fun defaultExtraUrlsListIsTheGoogleFamily() {
+        assertEquals(
+            listOf("https://accounts.google.com/", "https://www.google.com/", "https://www.google.it/"),
+            CookieCollector.DEFAULT_EXTRA_URLS,
+        )
+    }
+
+    // ---- parseExtraUrls (COK-32) ----
+
+    @Test
+    fun parseExtraUrlsNormalizesBareHostsToHttps() {
+        assertEquals(
+            listOf("https://gitlab.example.com", "https://example.org"),
+            CookieCollector.parseExtraUrls("gitlab.example.com\nexample.org"),
+        )
+    }
+
+    @Test
+    fun parseExtraUrlsKeepsSchemesAndSkipsCommentsAndBlanks() {
+        assertEquals(
+            listOf("http://lan.host:8901", "https://a.example"),
+            CookieCollector.parseExtraUrls("# comment\n\nhttp://lan.host:8901   # trailing\nhttps://a.example"),
+        )
+    }
+
+    @Test
+    fun parseExtraUrlsDropsInvalidEntriesSilently() {
+        assertEquals(emptyList<String>(), CookieCollector.parseExtraUrls("not a url\n://broken\nlocalhost\n%%%\n"))
+    }
+
+    @Test
+    fun parseExtraUrlsEmptyInputYieldsEmptyList() {
+        assertEquals(emptyList<String>(), CookieCollector.parseExtraUrls("  \n# only comments\n"))
     }
 }

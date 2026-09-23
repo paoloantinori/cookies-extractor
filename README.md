@@ -17,6 +17,9 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   both shares (cookies and captured OAuth tokens). Placeholders: `{payload}` (the
   cookie/token text), `{url}`, `{title}`, `{host}`, `{date}` (ISO-8601). Unknown
   placeholders stay as written; an empty template restores the default message.
+- **Extra domains** (overflow menu): the user's list of domains the structured cookie
+  share collects beyond the current page (default: the Google family; one URL or bare
+  host per line, `#` comments).
 - **Bookmarks** (overflow menu): add by URL or current entry URL, tap to reload, delete.
 - **OAuth redirect capture**: non-http OAuth redirects (e.g. `urn:ietf:wg:oauth:2.0:oob?code=…`)
   are caught before the WebView shows an error page, and the **full redirect URL is shared as
