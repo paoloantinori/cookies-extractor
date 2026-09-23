@@ -24,6 +24,9 @@ object CookieCollector {
         raw.lines().mapNotNull { line ->
             val entry = line.substringBefore('#').trim()
             if (entry.isEmpty()) return@mapNotNull null
+            // a real scheme token has no dot; "hosthttps://x" (an IME-joined line) must
+            // be rejected, not stored verbatim as a never-matching URL
+            if (entry.contains("://") && entry.substringBefore("://").contains(".")) return@mapNotNull null
             val withScheme =
                 if (entry.contains("://")) entry else "https://$entry"
             val host = hostFromUrl(withScheme) ?: return@mapNotNull null
@@ -62,11 +65,29 @@ object CookieCollector {
     private fun hostFromUrl(url: String): String? {
         val afterScheme = url.substringAfter("://", "")
         if (afterScheme.isEmpty()) return null
+        // the authority ends at /, ?, or # (a query-only URL is not part of the host)
+        val authority = afterScheme.substringBefore("/").substringBefore("?").substringBefore("#")
         // drop userinfo (user:pass@host) before the port split, or it leaks into the host
-        return afterScheme.substringBefore("/")
-            .substringAfterLast("@")
-            .substringBefore(":")
-            .lowercase()
+        val noUserinfo = authority.substringAfterLast("@")
+        // IPv6 literal: [2001:db8::1]:8443; the bracket content is the host, as-is
+        if (noUserinfo.startsWith("[")) {
+            return noUserinfo.substringBefore("]").removePrefix("[").lowercase().ifEmpty { null }
+        }
+        return noUserinfo.substringBefore(":").lowercase()
+    }
+
+    /**
+     * Domain label for a collected source: the registrable domain when there is one,
+     * otherwise the full host (dotless intranet names and IP literals have no eTLD+1;
+     * skipping them would silently empty the structured share where flat mode worked).
+     * IPv6 hosts keep their brackets so the label cannot collide with a DNS name.
+     */
+    private fun domainLabel(url: String): String? {
+        val registrable = registrableDomain(url)
+        if (registrable.isNotEmpty()) return registrable
+        val host = hostFromUrl(url) ?: return null
+        if (host.isEmpty()) return null
+        return if (host.contains(":")) "[$host]" else host
     }
 
     fun collect(sources: List<Pair<String, String?>>): List<Cookie> {
@@ -74,8 +95,7 @@ object CookieCollector {
         val cookies = mutableListOf<Cookie>()
         for ((url, header) in sources) {
             if (header.isNullOrBlank()) continue
-            val domain = registrableDomain(url)
-            if (domain.isEmpty()) continue
+            val domain = domainLabel(url) ?: continue
             for (cookie in parseCookieHeader(header, domain)) {
                 val key = cookie.name to cookie.domain
                 if (seen.add(key)) cookies.add(cookie)

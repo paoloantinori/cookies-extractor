@@ -11,8 +11,10 @@ exactly like in a normal browser, then tap one button to pull the session cookie
 ## What it does
 - Address bar + in-app WebView (links stay inside the app).
 - Log in manually with **password / 2FA / OTP** (and most SSO-redirect flows).
-- **FAB** → extracts all cookies for the loaded domain via `CookieManager` and sends them
-  through the Android **share sheet** (messaging apps, clipboard, etc.).
+- **FAB** → extracts cookies and sends them through the Android **share sheet**
+  (messaging apps, clipboard, etc.). Default since v2: the structured multi-domain JSON
+  (see Extra domains); the overflow menu's cookie-format entry switches back to the
+  legacy flat "cookies for the loaded domain" string.
 - **Share template**: long-press the share FAB to define the message template used for
   both shares (cookies and captured OAuth tokens). Placeholders: `{payload}` (the
   cookie/token text), `{url}`, `{title}`, `{host}`, `{date}` (ISO-8601). Unknown
@@ -132,7 +134,7 @@ GET-only, matching the channel's parser.
 | `/api/v1/status` | current url/title, entry url, capture held, api level |
 | `/api/v1/navigate?url=&wait=load` | loads the URL; `wait=load` answers after `onPageFinished` (10s cap, 504 on timeout). The channel serves one connection at a time: a waiting navigate holds it until it answers |
 | `/api/v1/text` | `{"text": ...}` rendered page text |
-| `/api/v1/cookies` | `{"url": ..., "cookies": ...}` for the current page; `?format=structured` returns the version-2 multi-domain JSON, identical to the untemplated share payload (404 `no_cookies` if the jar is empty) |
+| `/api/v1/cookies` | `{"url": ..., "cookies": ...}` for the current page; `?format=structured` returns the version-2 multi-domain JSON, the same document the share FAB emits with the structured format active (the FAB's flat/structured toggle does not affect the API) |
 | `/api/v1/capture` | `{"url": ...}` the captured redirect (404 `no_capture` if none) |
 | `/api/v1/clear` | wipes cookies + storage and reloads |
 | `/api/v1/bookmarks` | list; `.../add?url=&title=` and `.../delete?url=` mutate |

@@ -773,7 +773,8 @@ class MainActivity : AppCompatActivity() {
         is Api.Command.Cookies -> withUi<Api.Outcome>(3000) { f ->
             if (cmd.structured) {
                 // same collection the share FAB runs (COK-31/33): the response body IS
-                // the version-2 document, identical to the untemplated share payload (a
+                // the version-2 document, the same payload the share emits when the
+                // structured format is active (the FAB toggle never affects the API; a
                 // configured template wraps the share but never this API), so the
                 // gateway can consume either source with one parser
                 val json = extractCookiesStructured()
@@ -1119,8 +1120,11 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.extra_urls_title)
             .setView(column)
             .setPositiveButton(R.string.extra_urls_save) { _, _ ->
-                extraUrlsRepo.save(CookieCollector.parseExtraUrls(input.text.toString()))
-                Toast.makeText(this, R.string.toast_extra_urls_saved, Toast.LENGTH_SHORT).show()
+                val parsed = CookieCollector.parseExtraUrls(input.text.toString())
+                extraUrlsRepo.save(parsed)
+                // the count is the warning: 0 means every line was dropped and the
+                // share now collects only the loaded page's cookies
+                Toast.makeText(this, getString(R.string.toast_extra_urls_saved_fmt, parsed.size), Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton(R.string.extra_urls_cancel, null)
             .setNeutralButton(R.string.extra_urls_reset) { _, _ ->

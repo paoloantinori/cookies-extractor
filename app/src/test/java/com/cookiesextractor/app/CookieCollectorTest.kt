@@ -230,6 +230,37 @@ class CookieCollectorTest {
     }
 
     @Test
+    fun parseExtraUrlsRejectsDotBearingPseudoSchemes() {
+        // an IME-joined line like "example.orghttps://x" contains :// but is garbage
+        assertEquals(
+            emptyList<String>(),
+            CookieCollector.parseExtraUrls("example.orghttps://accounts.google.com/"),
+        )
+    }
+
+    @Test
+    fun collectKeepsDotlessHostCookiesLabeledWithTheFullHost() {
+        // localhost/intranet pages must not silently empty the structured share
+        val cookies = CookieCollector.collect(listOf("http://localhost:8080/auth" to "SID=abc; theme=dark"))
+        assertEquals(2, cookies.size)
+        assertEquals("localhost", cookies[0].domain)
+    }
+
+    @Test
+    fun collectLabelsIpv6HostsWithBrackets() {
+        val cookies = CookieCollector.collect(listOf("https://[2001:db8::1]:8443/" to "SID=v6"))
+        assertEquals(1, cookies.size)
+        assertEquals("[2001:db8::1]", cookies[0].domain)
+    }
+
+    @Test
+    fun queryOnlyUrlDoesNotLeakIntoTheDomain() {
+        // https://sso.example.com?next=1 must label .example.com, not a mangled host
+        val cookies = CookieCollector.collect(listOf("https://sso.example.com?next=1" to "SID=q"))
+        assertEquals(".example.com", cookies.single().domain)
+    }
+
+    @Test
     fun parseExtraUrlsEmptyInputYieldsEmptyList() {
         assertEquals(emptyList<String>(), CookieCollector.parseExtraUrls("  \n# only comments\n"))
     }
