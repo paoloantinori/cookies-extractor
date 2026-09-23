@@ -323,9 +323,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun extractCookiesStructured(): String? {
         val cm = CookieManager.getInstance()
-        val loadedUrl = webView.url ?: return null
-        val sources = listOf(loadedUrl to cm.getCookie(loadedUrl)) +
-            CookieCollector.EXTRA_URLS.map { it to cm.getCookie(it) }
+        // a null loaded URL (no page yet) must not hide the EXTRA_URLS jar: only the
+        // loaded source is dropped, the fixed sources are always consulted
+        val loadedUrl = webView.url
+        val sources = listOfNotNull(
+            loadedUrl?.let { it to cm.getCookie(it) },
+        ) + CookieCollector.EXTRA_URLS.map { it to cm.getCookie(it) }
         val cookies = CookieCollector.collect(sources)
         if (cookies.isEmpty()) return null
         return CookieCollector.toJson(cookies)
@@ -344,11 +347,7 @@ class MainActivity : AppCompatActivity() {
         val message =
             if (template != null) ShareTemplate.render(template, shareContext(json))
             else json
-        val share = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, message)
-        }
-        startActivity(Intent.createChooser(share, getString(R.string.share_chooser_title)))
+        fireShareIntent(message, R.string.share_chooser_title)
     }
 
     private fun isStructuredCookieFormat(): Boolean =
@@ -427,11 +426,19 @@ class MainActivity : AppCompatActivity() {
      * per PRD §4.5. A stored template (COK-15) shapes the whole message; without one the
      * preamble string keeps today's output byte-identical.
      */
-    private fun shareViaChooser(text: String, @StringRes preambleRes: Int, @StringRes titleRes: Int) {
+    private fun shareViaChooser(
+        text: String,
+        @StringRes preambleRes: Int?,
+        @StringRes titleRes: Int,
+    ) {
         val template = shareTemplateRepo.load()
         val message =
             if (template != null) ShareTemplate.render(template, shareContext(text))
-            else getString(preambleRes, text)
+            else preambleRes?.let { getString(it, text) } ?: text
+        fireShareIntent(message, titleRes)
+    }
+
+    private fun fireShareIntent(message: String, @StringRes titleRes: Int) {
         val share = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, message)

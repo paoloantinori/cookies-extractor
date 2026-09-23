@@ -31,6 +31,17 @@ class CookieCollectorTest {
     }
 
     @Test
+    fun whitespaceNamesAreDropped() {
+        val cookies = CookieCollector.parseCookieHeader("SID=a; bogus name=y; =x; NID=b", ".google.com")
+        assertEquals(listOf("SID", "NID"), cookies.map { it.name })
+    }
+
+    @Test
+    fun userinfoDoesNotLeakIntoTheHost() {
+        assertEquals(".example.com", CookieCollector.registrableDomain("https://user:pass@example.com/"))
+    }
+
+    @Test
     fun skipsEntriesWithoutEquals() {
         val cookies = CookieCollector.parseCookieHeader("good=val; bare; also=ok", ".x.com")
         assertEquals(2, cookies.size)

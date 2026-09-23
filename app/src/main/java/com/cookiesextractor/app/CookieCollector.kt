@@ -20,8 +20,11 @@ object CookieCollector {
             val trimmed = pair.trim()
             val eq = trimmed.indexOf('=')
             if (eq < 1) return@mapNotNull null
+            val name = trimmed.substring(0, eq).trim()
+            // a name is a token: internal whitespace means a malformed pair, not a cookie
+            if (name.isEmpty() || name.any { it.isWhitespace() }) return@mapNotNull null
             Cookie(
-                name = trimmed.substring(0, eq).trim(),
+                name = name,
                 value = trimmed.substring(eq + 1).trim(),
                 domain = domain,
             )
@@ -43,7 +46,11 @@ object CookieCollector {
     private fun hostFromUrl(url: String): String? {
         val afterScheme = url.substringAfter("://", "")
         if (afterScheme.isEmpty()) return null
-        return afterScheme.substringBefore("/").substringBefore(":").lowercase()
+        // drop userinfo (user:pass@host) before the port split, or it leaks into the host
+        return afterScheme.substringBefore("/")
+            .substringAfterLast("@")
+            .substringBefore(":")
+            .lowercase()
     }
 
     fun collect(sources: List<Pair<String, String?>>): List<Cookie> {
