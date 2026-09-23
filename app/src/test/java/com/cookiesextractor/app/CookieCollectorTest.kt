@@ -239,6 +239,56 @@ class CookieCollectorTest {
     }
 
     @Test
+    fun compoundCcTldHostsKeepTheirPrivateLabel() {
+        assertEquals(".mycompany.co.uk", CookieCollector.registrableDomain("https://gitlab.mycompany.co.uk/"))
+        assertEquals(".mycompany.com.au", CookieCollector.registrableDomain("https://jira.mycompany.com.au/browse"))
+        assertEquals(".mycompany.co.jp", CookieCollector.registrableDomain("https://sso.mycompany.co.jp/"))
+        // deep host under a compound suffix still keeps exactly one private label
+        assertEquals(".university-of-x.ac.uk", CookieCollector.registrableDomain("https://portal.university-of-x.ac.uk/"))
+    }
+
+    @Test
+    fun bareCompoundSuffixAloneFallsBackToTwoLabels() {
+        // the host IS the suffix (no private label): no registrable domain exists,
+        // same treatment as before the table
+        assertEquals(".co.uk", CookieCollector.registrableDomain("https://co.uk/"))
+    }
+
+    @Test
+    fun plainTldsKeepTheTwoLabelRule() {
+        assertEquals(".example.com", CookieCollector.registrableDomain("https://a.b.example.com/"))
+        assertEquals(".google.it", CookieCollector.registrableDomain("https://www.google.it/"))
+    }
+
+    @Test
+    fun ipv4AddressesHaveNoRegistrableDomain() {
+        assertEquals("", CookieCollector.registrableDomain("https://192.0.2.10:8443/"))
+    }
+
+    @Test
+    fun ipv4UrlsCollectLabeledWithTheBareAddress() {
+        val cookies = CookieCollector.collect(listOf("https://192.0.2.10:8443/" to "SID=lan"))
+        assertEquals("192.0.2.10", cookies.single().domain)
+    }
+
+    @Test
+    fun sameRegistrableDomainUnderCompoundTldStillMergesFirstWins() {
+        // gitlab and wiki share .mycompany.co.uk: same-named cookies merge first-wins.
+        // Deliberate (CookieManager exposes no per-cookie scope, and the Google family
+        // relies on this merge for its overlapping multi-host cookies), recorded as the
+        // known limitation of the version-2 format.
+        val cookies = CookieCollector.collect(
+            listOf(
+                "https://gitlab.mycompany.co.uk/" to "SESSION=gitlab",
+                "https://wiki.mycompany.co.uk/" to "SESSION=wiki",
+            ),
+        )
+        assertEquals(1, cookies.size)
+        assertEquals(".mycompany.co.uk", cookies.single().domain)
+        assertEquals("gitlab", cookies.single().value)
+    }
+
+    @Test
     fun collectKeepsDotlessHostCookiesLabeledWithTheFullHost() {
         // localhost/intranet pages must not silently empty the structured share
         val cookies = CookieCollector.collect(listOf("http://localhost:8080/auth" to "SID=abc; theme=dark"))

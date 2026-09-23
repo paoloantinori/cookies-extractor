@@ -51,15 +51,51 @@ object CookieCollector {
     }
 
     /**
-     * Registrable domain (eTLD+1) from a URL, dot-prefixed. Two-label heuristic:
-     * sufficient for the constant Google-domain list; compound TLDs (.co.uk) would
-     * need a Public Suffix List lookup.
+     * Public suffixes with more than one label that matter for logins (curated, not the
+     * full PSL: 24 entries cover the compound ccTLD families a real IdP sits under).
+     * Matched against the host tail, longest first, so ".ac.uk" wins over a hypothetical
+     * ".uk". Pure data, no dependency.
+     */
+    private val COMPOUND_SUFFIXES = listOf(
+        "ac.uk", "co.uk", "gov.uk", "org.uk",
+        "co.jp", "or.jp", "ne.jp", "ac.jp",
+        "com.au", "net.au", "org.au", "co.nz",
+        "com.br", "com.mx", "com.ar", "com.tr",
+        "co.in", "co.za", "com.cn", "com.tw",
+        "com.hk", "com.sg", "co.kr", "com.ua",
+    )
+
+    /**
+     * Registrable domain (eTLD+1) from a URL, dot-prefixed. Compound suffixes from the
+     * curated table keep their private label (gitlab.mycompany.co.uk -> .mycompany.co.uk,
+     * not .co.uk); everything else uses the two-label rule. IP-address hosts have no
+     * registrable domain and return "" (the caller falls back to the full-host label).
      */
     fun registrableDomain(url: String): String {
         val host = hostFromUrl(url) ?: return ""
+        if (isIpAddress(host)) return ""
         val parts = host.split(".")
         if (parts.size < 2 || parts.any { it.isEmpty() }) return ""
-        return ".${parts.takeLast(2).joinToString(".")}"
+        val suffix = COMPOUND_SUFFIXES
+            .filter { host.endsWith(".$it") }
+            .maxByOrNull { it.length }
+        return if (suffix != null) {
+            val keep = suffix.count { it == '.' } + 2
+            ".${parts.takeLast(keep).joinToString(".")}"
+        } else {
+            ".${parts.takeLast(2).joinToString(".")}"
+        }
+    }
+
+    /**
+     * Dotted-quad IPv4 (all-numeric labels). Any host containing ':' is an IPv6 literal
+     * (hostFromUrl strips the brackets), including IPv4-mapped forms that carry dots.
+     */
+    private fun isIpAddress(host: String): Boolean {
+        if (host.contains(":")) return true
+        if (!host.contains(".")) return false
+        val labels = host.split(".")
+        return labels.size == 4 && labels.all { it.isNotEmpty() && it.all { c -> c.isDigit() } }
     }
 
     private fun hostFromUrl(url: String): String? {
