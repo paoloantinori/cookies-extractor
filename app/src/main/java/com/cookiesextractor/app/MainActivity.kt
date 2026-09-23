@@ -222,10 +222,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Accept and keep cookies so CookieManager can read them back after login. Third-party
-        // cookies are enabled so the WebView stores them and will send the ones scoped to the
-        // loaded domain when getCookie(url) is called. Note: getCookie returns only cookies
-        // scoped to the loaded URL — a cookie set on a fully separate domain (e.g. an IdP)
-        // won't appear here; cross-domain aggregation is future work.
+        // cookies are enabled so the WebView stores cookies set across domains during the
+        // login flow; getCookie(url) reads back cookies scoped to that URL's domain, and
+        // the structured share format (COK-30) queries multiple domains in one share.
         val cm = CookieManager.getInstance()
         cm.setAcceptCookie(true)
         cm.setAcceptThirdPartyCookies(webView, true)
@@ -299,24 +298,71 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Reads the session cookies for the currently loaded URL (PRD §4.4). */
+    /** Reads session cookies and shares them (PRD §4.4, multi-domain COK-30). */
     private fun onExtractCookies() {
-        val cookies = extractCookies()
-        if (cookies.isBlank()) {
-            Toast.makeText(this, R.string.toast_no_cookies, Toast.LENGTH_SHORT).show()
+        if (isStructuredCookieFormat()) {
+            val json = extractCookiesStructured() ?: run {
+                Toast.makeText(this, R.string.toast_no_cookies, Toast.LENGTH_SHORT).show()
+                return
+            }
+            if (BuildConfig.DEBUG) Log.i(TAG, "Structured cookies:\n$json")
+            shareCookiesStructured(json)
         } else {
-            // Debug builds only (COK-19): a release build must not ship session cookies
-            // into logcat, where they ride along any bug report a user attaches.
-            if (BuildConfig.DEBUG) Log.i(TAG, "Cookies for ${webView.url}:\n$cookies")
-            shareCookies(cookies)
+            val cookies = extractCookiesFlat()
+            if (cookies.isBlank()) {
+                Toast.makeText(this, R.string.toast_no_cookies, Toast.LENGTH_SHORT).show()
+            } else {
+                if (BuildConfig.DEBUG) Log.i(TAG, "Cookies for ${webView.url}:\n$cookies")
+                shareCookies(cookies)
+            }
         }
     }
 
-    private fun extractCookies(): String =
+    private fun extractCookiesFlat(): String =
         webView.url?.let { CookieManager.getInstance().getCookie(it) }.orEmpty()
+
+    private fun extractCookiesStructured(): String? {
+        val cm = CookieManager.getInstance()
+        val loadedUrl = webView.url ?: return null
+        val sources = listOf(loadedUrl to cm.getCookie(loadedUrl)) +
+            CookieCollector.EXTRA_URLS.map { it to cm.getCookie(it) }
+        val cookies = CookieCollector.collect(sources)
+        if (cookies.isEmpty()) return null
+        return CookieCollector.toJson(cookies)
+    }
 
     private fun shareCookies(cookies: String) =
         shareViaChooser(cookies, R.string.share_preamble, R.string.share_chooser_title)
+
+    /**
+     * Structured JSON is the payload itself: no prose preamble, so the share text is
+     * parseable as raw JSON by machine consumers (the Mac gateway sends it invariato).
+     * A user-defined template still wraps it if one is configured.
+     */
+    private fun shareCookiesStructured(json: String) {
+        val template = shareTemplateRepo.load()
+        val message =
+            if (template != null) ShareTemplate.render(template, shareContext(json))
+            else json
+        val share = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, message)
+        }
+        startActivity(Intent.createChooser(share, getString(R.string.share_chooser_title)))
+    }
+
+    private fun isStructuredCookieFormat(): Boolean =
+        getPreferences(MODE_PRIVATE).getBoolean(PREF_STRUCTURED_COOKIES, true)
+
+    private fun toggleCookieFormat() {
+        val nowStructured = !isStructuredCookieFormat()
+        getPreferences(MODE_PRIVATE).edit().putBoolean(PREF_STRUCTURED_COOKIES, nowStructured).apply()
+        Toast.makeText(
+            this,
+            if (nowStructured) R.string.toast_format_structured else R.string.toast_format_flat,
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
 
     /**
      * Shares the last captured OAuth redirect (COK-3). The payload is the raw redirect
@@ -712,17 +758,31 @@ class MainActivity : AppCompatActivity() {
             } ?: return unavailable()
             Api.Outcome.Ok(200, "{\"text\":${Api.json(DebugHttp.jsonUnescape(encoded) ?: encoded)}}")
         }
-        Api.Command.Cookies ->
-            withUi<String>(3000) { f ->
+        is Api.Command.Cookies -> withUi<Api.Outcome>(3000) { f ->
+            if (cmd.structured) {
+                // same collection the share FAB runs (COK-31/33): the response body IS
+                // the version-2 document, identical to the untemplated share payload (a
+                // configured template wraps the share but never this API), so the
+                // gateway can consume either source with one parser
+                val json = extractCookiesStructured()
+                f.complete(
+                    if (json == null) Api.Outcome.Err(404, "no_cookies", "no cookies in the jar")
+                    else Api.Outcome.Ok(200, json)
+                )
+            } else {
                 val url = webView.url
                 val cookies = url?.let { CookieManager.getInstance().getCookie(it) }
                 f.complete(
-                    JSONObject()
-                        .put("url", url ?: JSONObject.NULL)
-                        .put("cookies", cookies ?: JSONObject.NULL)
-                        .toString()
+                    Api.Outcome.Ok(
+                        200,
+                        JSONObject()
+                            .put("url", url ?: JSONObject.NULL)
+                            .put("cookies", cookies ?: JSONObject.NULL)
+                            .toString(),
+                    )
                 )
-            }?.let { Api.Outcome.Ok(200, it) } ?: unavailable()
+            }
+        } ?: unavailable()
         Api.Command.Capture ->
             withUi<Api.Outcome>(3000) { f ->
                 val held = capture?.url
@@ -993,22 +1053,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Overflow menu for every toolbar action except Go: Bookmarks, Developer options,
-     * Session monitor, Clear session. A tracked dialog instead of a PopupMenu: a popup is
+     * Overflow menu for toolbar actions: Bookmarks, Developer options, Session monitor,
+     * Cookie format toggle, Clear session. A tracked dialog instead of a PopupMenu: a popup is
      * an untracked window the debug channel's dialog-aware /tap and /screenshot cannot
      * see (COK-12), and it leaks on config-change recreates. Labels and handlers are
      * declared as one list so a reorder can never desync them (COK-28 review).
      */
     private fun showOverflowMenu() {
-        val entries = listOf(
-            R.string.bookmarks_title to { showBookmarks() },
-            R.string.dev_title to { showDeveloperOptions() },
-            R.string.monitor_title to { showMonitorDialog() },
-            R.string.clear_session_label to { confirmClearSession() },
+        val structured = isStructuredCookieFormat()
+        val entries = listOf<Pair<String, () -> Unit>>(
+            getString(R.string.bookmarks_title) to { showBookmarks() },
+            getString(R.string.dev_title) to { showDeveloperOptions() },
+            getString(R.string.monitor_title) to { showMonitorDialog() },
+            getString(if (structured) R.string.cookie_format_to_flat else R.string.cookie_format_to_structured)
+                to { toggleCookieFormat() },
+            getString(R.string.clear_session_label) to { confirmClearSession() },
         )
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.overflow_title)
-            .setItems(entries.map { getString(it.first) }.toTypedArray()) { _, which ->
+            .setItems(entries.map { it.first }.toTypedArray()) { _, which ->
                 entries[which].second()
             }
             .create()
@@ -1084,5 +1147,6 @@ class MainActivity : AppCompatActivity() {
         private const val STATE_CAPTURED_REDIRECT = "captured_redirect"
         private const val STATE_ENTRY_URL = "entry_url"
         private const val NAV_WAIT_LOAD_MS = 10_000L
+        private const val PREF_STRUCTURED_COOKIES = "structured_cookies"
     }
 }

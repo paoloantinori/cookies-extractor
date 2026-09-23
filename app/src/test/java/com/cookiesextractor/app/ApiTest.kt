@@ -22,7 +22,7 @@ class ApiTest {
         val routes = mapOf(
             "/api/v1/status" to Api.Command.Status,
             "/api/v1/text" to Api.Command.Text,
-            "/api/v1/cookies" to Api.Command.Cookies,
+            "/api/v1/cookies" to Api.Command.Cookies(structured = false),
             "/api/v1/capture" to Api.Command.Capture,
             "/api/v1/clear" to Api.Command.Clear,
             "/api/v1/bookmarks" to Api.Command.Bookmarks,
@@ -92,6 +92,23 @@ class ApiTest {
     fun submitSelectorIsOptional() {
         assertEquals(Api.Command.Submit(null), (parse("/api/v1/submit") as Api.Parse.Ok).command)
         assertEquals(Api.Command.Submit("#go"), (parse("/api/v1/submit", mapOf("selector" to "#go")) as Api.Parse.Ok).command)
+    }
+
+    @Test
+    fun cookiesFormatParameterSelectsStructured() {
+        assertEquals(
+            Api.Command.Cookies(structured = false),
+            (parse("/api/v1/cookies") as Api.Parse.Ok).command,
+        )
+        assertEquals(
+            Api.Command.Cookies(structured = true),
+            (parse("/api/v1/cookies", mapOf("format" to "structured")) as Api.Parse.Ok).command,
+        )
+        // an unknown format value keeps the backward-compatible flat response
+        assertEquals(
+            Api.Command.Cookies(structured = false),
+            (parse("/api/v1/cookies", mapOf("format" to "bogus")) as Api.Parse.Ok).command,
+        )
     }
 
     @Test

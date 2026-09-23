@@ -45,6 +45,10 @@
     <string name="overflow_btn_cd">More actions</string>
     <string name="overflow_title">More actions</string>
     <string name="clear_session_label">Clear session</string>
+    <string name="cookie_format_to_flat">Switch to flat cookies</string>
+    <string name="cookie_format_to_structured">Switch to structured cookies</string>
+    <string name="toast_format_structured">Switched to structured cookie format.</string>
+    <string name="toast_format_flat">Switched to flat legacy cookie format.</string>
     <string name="monitor_title">Session monitor</string>
     <string name="monitor_url_hint">State document URL (e.g. https://gw.example/monitor/state)</string>
     <string name="monitor_token_hint">Bearer token</string>

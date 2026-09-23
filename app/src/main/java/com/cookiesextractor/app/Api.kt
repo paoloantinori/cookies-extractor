@@ -30,7 +30,7 @@ object Api {
         data object Status : Command
         data class Navigate(val url: String, val waitForLoad: Boolean) : Command
         data object Text : Command
-        data object Cookies : Command
+        data class Cookies(val structured: Boolean) : Command
         data object Capture : Command
         data object Clear : Command
         data object Bookmarks : Command
@@ -66,7 +66,7 @@ object Api {
                 Parse.Ok(Command.Navigate(url, query["wait"] == "load"))
             }
             "/text" -> Parse.Ok(Command.Text)
-            "/cookies" -> Parse.Ok(Command.Cookies)
+            "/cookies" -> Parse.Ok(Command.Cookies(structured = query["format"] == "structured"))
             "/capture" -> Parse.Ok(Command.Capture)
             "/clear" -> Parse.Ok(Command.Clear)
             "/bookmarks" -> Parse.Ok(Command.Bookmarks)
