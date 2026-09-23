@@ -39,7 +39,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.annotation.StringRes
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
@@ -83,7 +82,6 @@ class MainActivity : AppCompatActivity() {
     private val repo by lazy { BookmarksRepository(this) }
     private val shareTemplateRepo by lazy { ShareTemplateRepository(this) }
     private val extraUrlsRepo by lazy { ExtraUrlsRepository(this) }
-    private var devDialog: AlertDialog? = null
 
     // COK-12: every open dialog, last-shown last. Dialogs are separate windows, so the
     // debug channel's /tap and /screenshot must target the topmost one instead of the
@@ -514,12 +512,8 @@ class MainActivity : AppCompatActivity() {
         navigate(url)
     }
 
-    /** Pure URL scheme normalization. */
-    private fun normalizeUrl(raw: String): String = when {
-        URLUtil.isNetworkUrl(raw) -> raw   // already http(s)
-        raw.contains("://") -> raw         // some other scheme: don't double-prefix
-        else -> "https://$raw"             // bare input: assume https
-    }
+    /** URL scheme normalization, shared with the extra-domains editor (COK-39). */
+    private fun normalizeUrl(raw: String): String = Api.normalizeUserUrl(raw)
 
     /**
      * True when a normalized [url] can be loaded as a page. Capture-schemes must be rejected
@@ -569,10 +563,9 @@ class MainActivity : AppCompatActivity() {
     private fun currentNetworkUrl(): String? =
         webView.url?.takeIf { URLUtil.isNetworkUrl(it) }
 
-    /** Shows [dialog] tracked in [openDialogs]; [onDismiss] runs first on dismissal. */
-    private fun showTracked(dialog: Dialog, onDismiss: () -> Unit = {}) {
+    /** Shows [dialog] tracked in [openDialogs], last-shown last. */
+    private fun showTracked(dialog: Dialog) {
         dialog.setOnDismissListener {
-            onDismiss()
             openDialogs.remove(dialog)
         }
         dialog.show()
@@ -581,14 +574,19 @@ class MainActivity : AppCompatActivity() {
 
     // ---- Debug channel (COK-10) ----
 
-    /** Developer dialog: channel state, the URL+token to use, and the enable/disable toggle. */
+    /**
+     * Developer dialog: channel state, the URL+token to use, and the enable/disable
+     * toggle. Enable re-calls this to show the fresh token (a new tracked dialog stacks
+     * over the old one); Disable stops the channel and lets the dialog close.
+     * openDialogs is the single dialog registry (COK-14 removed the stale devDialog
+     * field).
+     */
     private fun showDeveloperOptions() {
-        devDialog?.dismiss()
         val channel = debugChannel
         val message =
             if (channel != null) getString(R.string.dev_status_on_fmt, lanIp() ?: "?", channel.boundPort, channel.token)
             else getString(R.string.dev_status_off)
-        devDialog = MaterialAlertDialogBuilder(this)
+        val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.dev_title)
             .setMessage(message)
             .setPositiveButton(if (channel != null) R.string.dev_disable else R.string.dev_enable) { _, _ ->
@@ -596,7 +594,7 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.dev_close, null)
             .create()
-            .also { showTracked(it) { devDialog = null } }
+            .also { showTracked(it) }
     }
 
     private fun enableDebugChannel() {

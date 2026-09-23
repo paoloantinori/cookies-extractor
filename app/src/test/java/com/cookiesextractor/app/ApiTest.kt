@@ -95,6 +95,14 @@ class ApiTest {
     }
 
     @Test
+    fun normalizeUserUrlPassesSchemesAndPrefixesBareInput() {
+        assertEquals("https://x.example", Api.normalizeUserUrl("x.example"))
+        assertEquals("http://x.example/", Api.normalizeUserUrl("http://x.example/"))
+        assertEquals("ftp://x", Api.normalizeUserUrl("ftp://x"))
+        assertEquals("https://", Api.normalizeUserUrl("https://"))
+    }
+
+    @Test
     fun cookiesFormatParameterSelectsStructured() {
         assertEquals(
             Api.Command.Cookies(structured = false),

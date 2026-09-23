@@ -18,6 +18,19 @@ object CookieCollector {
     private val HOST_CHARS = Regex("[a-z0-9.:\\-]+")
 
     /**
+     * Two-label host-family key (the split('.').takeLast(2) approximation): the single
+     * shared definition for cookie grouping and capture-release comparison. Cookie
+     * grouping refines it per registrable domain (see [registrableDomain]); this bare
+     * form exists so both call sites can never drift again. Compound-TLD hosts over-
+     * group here by design (errs toward keeping a capture; COK-38 hoist).
+     */
+    fun hostFamilyKey(host: String): String? {
+        val labels = host.split(".")
+        if (labels.size < 2 || labels.any { it.isEmpty() }) return null
+        return labels.takeLast(2).joinToString(".")
+    }
+
+    /**
      * Parses a user-supplied extra-URL list: one entry per line, '#' comments and blank
      * lines skipped, scheme-less entries normalized to https, invalid ones dropped
      * silently (the user list is edited by hand in a dialog; typos must not break the
@@ -31,13 +44,11 @@ object CookieCollector {
             // a real scheme token has no dot and no slash; "hosthttps://x" (an IME-joined
             // line) must be rejected, not stored verbatim as a never-matching URL, while
             // a legitimate path or query before an embedded https still parses fine
-            // only http(s) can ever contribute cookies (and an IME-joined line like
-            // "localhosthttps://x" carries a bogus scheme token); reject any other
-            // scheme up front instead of storing a never-matching URL verbatim
-            val schemePart = entry.substringBefore("://", missingDelimiterValue = "")
-            if (schemePart.isNotEmpty() && schemePart != "http" && schemePart != "https") return@mapNotNull null
-            val withScheme =
-                if (schemePart.isNotEmpty()) entry else "https://$entry"
+            // shared bare-host-gets-https policy (COK-39); only http(s) survives the
+            // allowlist because other schemes can never contribute cookies
+            val withScheme = Api.normalizeUserUrl(entry)
+            val schemePart = withScheme.substringBefore("://", missingDelimiterValue = "")
+            if (schemePart != "http" && schemePart != "https") return@mapNotNull null
             val host = hostFromUrl(withScheme) ?: return@mapNotNull null
             // dotless intranet names and bracketed IPv6 are valid extras (domainLabel
             // labels them with the full host); anything with whitespace or characters
@@ -89,17 +100,15 @@ object CookieCollector {
     fun registrableDomain(url: String): String {
         val host = hostFromUrl(url) ?: return ""
         if (isIpAddress(host)) return ""
-        val parts = host.split(".")
-        if (parts.size < 2 || parts.any { it.isEmpty() }) return ""
         val suffix = COMPOUND_SUFFIXES
             .filter { host.endsWith(".$it") }
             .maxByOrNull { it.length }
-        return if (suffix != null) {
+        if (suffix != null) {
+            val labels = host.split(".")
             val keep = suffix.count { it == '.' } + 2
-            ".${parts.takeLast(keep).joinToString(".")}"
-        } else {
-            ".${parts.takeLast(2).joinToString(".")}"
+            return ".${labels.takeLast(keep).joinToString(".")}"
         }
+        return hostFamilyKey(host)?.let { ".$it" } ?: ""
     }
 
     /**
@@ -171,7 +180,4 @@ object CookieCollector {
         sb.append("]}")
         return sb.toString()
     }
-
-    fun collectAndSerialize(sources: List<Pair<String, String?>>): String =
-        toJson(collect(sources))
 }

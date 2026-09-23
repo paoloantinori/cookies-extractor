@@ -53,10 +53,12 @@ object RedirectCapture {
 
     private fun sameRegistrableHost(a: String, b: String): Boolean {
         if (a == b) return true
-        val al = a.split('.')
-        val bl = b.split('.')
-        if (al.size < 2 || bl.size < 2) return false
-        return al.takeLast(2) == bl.takeLast(2)
+        // shared two-label host-family rule (COK-38 hoist); compound-TLD hosts over-
+        // group, which errs toward keeping a capture rather than dropping a code.
+        // Trailing-dot FQDNs (empty last label) keep the old tolerant comparison.
+        val fa = CookieCollector.hostFamilyKey(a.trimEnd('.'))
+        val fb = CookieCollector.hostFamilyKey(b.trimEnd('.'))
+        return fa != null && fa == fb
     }
 
     /**

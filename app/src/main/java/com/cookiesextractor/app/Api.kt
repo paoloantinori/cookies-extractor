@@ -11,9 +11,17 @@ package com.cookiesextractor.app
  * model everywhere: {"error":{"code":"...","message":"..."}}.
  *
  * Deliberately GET-only, mutations included: the channel parser accepts GETs only, and an
- * agent driving this app is automation, not a browser form.
+ * agent driving this app is automation, not a browser form. Also hosts small shared
+ * pure-JVM helpers (normalizeUserUrl, json escaping) used beyond the SPI itself.
  */
 object Api {
+
+    /** Shared bare-host-gets-https policy for user-typed URLs (COK-39): entries that
+     *  already carry any scheme pass through untouched, bare input is https-prefixed.
+     *  The address bar and the extra-domains editor both normalize through this, so the
+     *  two surfaces can never disagree on identical input. */
+    fun normalizeUserUrl(raw: String): String =
+        if (raw.contains("://")) raw else "https://$raw"
 
     const val API_LEVEL = 1
     const val PREFIX = "/api/v1"

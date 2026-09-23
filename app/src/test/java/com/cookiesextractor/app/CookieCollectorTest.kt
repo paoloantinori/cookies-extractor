@@ -1,6 +1,7 @@
 package com.cookiesextractor.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -185,7 +186,7 @@ class CookieCollectorTest {
         assertTrue(json.contains("},{"))
     }
 
-    // ---- collectAndSerialize integration ----
+    // ---- collect + toJson integration ----
 
     @Test
     fun fullRoundTrip() {
@@ -193,7 +194,7 @@ class CookieCollectorTest {
             "https://myaccount.google.com/" to "SID=x; HSID=y",
             "https://www.google.it/" to "NID=z",
         )
-        val json = CookieCollector.collectAndSerialize(sources)
+        val json = CookieCollector.toJson(CookieCollector.collect(sources))
         assertTrue(json.contains("\"version\":2"))
         assertTrue(json.contains("\"name\":\"SID\""))
         assertTrue(json.contains("\"domain\":\".google.com\""))
@@ -240,6 +241,14 @@ class CookieCollectorTest {
             listOf("https://localhost"),
             CookieCollector.parseExtraUrls("localhost\n://broken\nftp://files.example\n"),
         )
+    }
+
+    @Test
+    fun hostFamilyKeyBasics() {
+        assertEquals("google.com", CookieCollector.hostFamilyKey("docs.google.com"))
+        assertEquals("google.com", CookieCollector.hostFamilyKey("google.com"))
+        assertNull(CookieCollector.hostFamilyKey("localhost"))
+        assertNull(CookieCollector.hostFamilyKey("dot..empty"))
     }
 
     @Test
