@@ -21,7 +21,12 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   placeholders stay as written; an empty template restores the default message.
 - **Extra domains** (overflow menu): the user's list of domains the structured cookie
   share collects beyond the current page (default: the Google family; one URL or bare
-  host per line, `#` comments).
+  host per line, `#` comments). The structured share and `?format=structured` both emit
+  this envelope:
+
+  ```json
+  {"version":2,"cookies":[{"name":"SID","value":"...","domain":".google.com"}]}
+  ```
 - **Bookmarks** (overflow menu): add by URL or current entry URL, tap to reload, delete.
 - **OAuth redirect capture**: non-http OAuth redirects (e.g. `urn:ietf:wg:oauth:2.0:oob?code=…`)
   are caught before the WebView shows an error page, and the **full redirect URL is shared as
@@ -90,8 +95,10 @@ Licensed under the Apache License 2.0 (see `LICENSE`).
 ## Project layout
 - `app/src/main/java/com/cookiesextractor/app/`: Kotlin source (`MainActivity`,
   `RedirectCapture`, `BookmarksRepository`, `Bookmark`, `DebugHttp`, `DebugChannel`,
-  `ShareTemplate`, `ShareTemplateRepository`, `Api`, `MonitorAlerts`, `MonitorRepository`,
-  `MonitorPoller`).
+  `ShareTemplate`, `ShareTemplateRepository`, `Api`, `CookieCollector`, `ExtraUrlsRepository`,
+  `MonitorAlerts`, `MonitorRepository`, `MonitorPoller`).
+- `fastlane/metadata/android/`: store listing metadata (en-US, it-IT: descriptions,
+  icon, screenshots, changelogs) consumed by F-Droid.
 - `app/src/main/res/`: layouts, strings, themes, launcher icon.
 - `tools/gen_icon.py`: regenerates the ten legacy launcher PNGs (committed bytes are the
   Pillow output).
