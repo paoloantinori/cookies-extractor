@@ -1,0 +1,1 @@
+Condivisione cookie multi-dominio: raccoglie la sessione su un elenco di domini configurabile (predefinito: la famiglia Google) emettendo un unico documento JSON strutturato; i domini nazionali composti come co.uk sono raggruppati correttamente.

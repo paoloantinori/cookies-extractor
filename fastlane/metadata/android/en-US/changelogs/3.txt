@@ -1,0 +1,1 @@
+Multi-domain cookie share: collects your session across a configurable list of domains (default: the Google family) and emits one structured JSON document; compound country domains like co.uk are grouped correctly.
