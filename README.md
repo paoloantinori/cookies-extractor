@@ -34,6 +34,10 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   announces the capture, so the login's silent terminal state is no longer mistaken for a stall.
 - **Session reset** (overflow menu): wipes cookies + WebView storage behind a confirm and
   reloads, for when a login flow gets wedged and needs a from-zero restart.
+- **Desktop site** (overflow menu): swaps the WebView's user agent to a desktop Chrome one
+  and reloads. Some services gate their real web client on the user agent (Slack workspace
+  domains serve a "get the app" page to mobile agents); this is the browser-standard
+  escape hatch, default off.
 - **Session monitor** (overflow menu): polls a state document on your gateway and raises a
   native notification when a service's login expires (see the dedicated section).
 - **Debug channel** (overflow menu, Developer options): opt-in HTTP endpoint to pilot the app from a laptop

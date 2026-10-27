@@ -49,6 +49,10 @@
     <string name="cookie_format_to_structured">Switch to structured cookies</string>
     <string name="toast_format_structured">Switched to structured cookie format.</string>
     <string name="toast_format_flat">Switched to flat legacy cookie format.</string>
+    <string name="desktop_site_to_on">Request desktop site</string>
+    <string name="desktop_site_to_off">Use mobile site</string>
+    <string name="toast_desktop_on">Switched to the desktop user agent.</string>
+    <string name="toast_desktop_off">Switched to the default user agent.</string>
     <string name="extra_urls_menu">Extra domains</string>
     <string name="extra_urls_title">Extra domains</string>
     <string name="extra_urls_hint">one URL or host per line</string>

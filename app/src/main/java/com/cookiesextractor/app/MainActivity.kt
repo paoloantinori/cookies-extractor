@@ -28,6 +28,7 @@ import android.webkit.URLUtil
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -212,6 +213,7 @@ class MainActivity : AppCompatActivity() {
             // blank-target clicks are dropped silently by the renderer without it (issue #1, slack.com workspace cards)
             setSupportMultipleWindows(true)
         }
+        applyUserAgent()
         webView.webViewClient = CapturingWebViewClient() // keep navigation in-app (PRD §4.2/§4.3)
 
         // COK-10: while the debug channel is enabled, keep the page console in the channel's
@@ -382,6 +384,45 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(
             this,
             if (nowStructured) R.string.toast_format_structured else R.string.toast_format_flat,
+            Toast.LENGTH_SHORT,
+        ).show()
+    }
+
+    private fun isDesktopSite(): Boolean =
+        getPreferences(MODE_PRIVATE).getBoolean(PREF_DESKTOP_SITE, false)
+
+    /**
+     * Swaps the whole UA string: some services gate their real web client on it and serve
+     * a "get the app" interstitial to mobile agents (slack.com workspace domains,
+     * 2026-10-27). Null restores the WebView default. Applied at configuration time and
+     * from the overflow toggle, which reloads so the change is visible on the spot.
+     */
+    private fun applyUserAgent(desktop: Boolean = isDesktopSite()) {
+        webView.settings.userAgentString = if (desktop) desktopUserAgent() else null
+    }
+
+    /**
+     * Derives the desktop UA from the live WebView default instead of freezing a Chrome
+     * version into the APK: swap the platform parenthetical and drop the Mobile token, so
+     * the Chrome version tracks the installed WebView. Services that version-check the UA
+     * (Google sign-in notably) degrade on stale version tokens.
+     */
+    private fun desktopUserAgent(): String =
+        WebSettings.getDefaultUserAgent(this)
+            .replaceFirst(Regex("\\([^)]*\\)"), "(X11; Linux x86_64)")
+            .replace(" Mobile Safari", " Safari")
+
+    private fun toggleDesktopSite() {
+        val nowDesktop = !isDesktopSite()
+        getPreferences(MODE_PRIVATE).edit().putBoolean(PREF_DESKTOP_SITE, nowDesktop).apply()
+        applyUserAgent(nowDesktop)
+        // Reload anything with a network URL: about:blank or a restored-but-empty state
+        // has nothing to re-fetch, and a failed page usefully retries under the new UA
+        // (webView.url still reports the failed URL after an error page).
+        if (currentNetworkUrl() != null) webView.reload()
+        Toast.makeText(
+            this,
+            if (nowDesktop) R.string.toast_desktop_on else R.string.toast_desktop_off,
             Toast.LENGTH_SHORT,
         ).show()
     }
@@ -1090,19 +1131,23 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Overflow menu for toolbar actions: Bookmarks, Developer options, Session monitor,
-     * Cookie format toggle, Clear session. A tracked dialog instead of a PopupMenu: a popup is
+     * Cookie format toggle, Desktop site, Extra domains, Clear session. A tracked dialog
+     * instead of a PopupMenu: a popup is
      * an untracked window the debug channel's dialog-aware /tap and /screenshot cannot
      * see (COK-12), and it leaks on config-change recreates. Labels and handlers are
      * declared as one list so a reorder can never desync them (COK-28 review).
      */
     private fun showOverflowMenu() {
         val structured = isStructuredCookieFormat()
+        val desktop = isDesktopSite()
         val entries = listOf<Pair<String, () -> Unit>>(
             getString(R.string.bookmarks_title) to { showBookmarks() },
             getString(R.string.dev_title) to { showDeveloperOptions() },
             getString(R.string.monitor_title) to { showMonitorDialog() },
             getString(if (structured) R.string.cookie_format_to_flat else R.string.cookie_format_to_structured)
                 to { toggleCookieFormat() },
+            getString(if (desktop) R.string.desktop_site_to_off else R.string.desktop_site_to_on)
+                to { toggleDesktopSite() },
             getString(R.string.extra_urls_menu) to { showExtraUrlsEditor() },
             getString(R.string.clear_session_label) to { confirmClearSession() },
         )
@@ -1229,5 +1274,6 @@ class MainActivity : AppCompatActivity() {
         private const val MAX_EXTRA_URLS_CHARS = 4000
         private const val NAV_WAIT_LOAD_MS = 10_000L
         private const val PREF_STRUCTURED_COOKIES = "structured_cookies"
+        private const val PREF_DESKTOP_SITE = "desktop_site"
     }
 }
