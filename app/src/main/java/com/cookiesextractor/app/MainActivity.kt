@@ -663,9 +663,18 @@ class MainActivity : AppCompatActivity() {
         val message =
             if (channel != null) getString(R.string.dev_status_on_fmt, lanIp() ?: "?", channel.boundPort, channel.token)
             else getString(R.string.dev_status_off)
+        // Selectable, not setMessage: the token is 32 hex chars that get typed into curl
+        // commands, and the default dialog message is not long-press copyable. Explicit
+        // 16dp padding like every setView dialog here (setMessage insets are lost).
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val body = TextView(this).apply {
+            text = message
+            setTextIsSelectable(true)
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.dev_title)
-            .setMessage(message)
+            .setView(body)
             .setPositiveButton(if (channel != null) R.string.dev_disable else R.string.dev_enable) { _, _ ->
                 if (channel != null) disableDebugChannel() else enableDebugChannel()
             }
