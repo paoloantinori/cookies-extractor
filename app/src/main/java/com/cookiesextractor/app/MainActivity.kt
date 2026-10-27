@@ -1332,7 +1332,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        search.doAfterTextChanged { render(repo.load()) }
+        search.doAfterTextChanged {
+            current = repo.load()
+            render(current)
+        }
 
         // The entry URL (pre-redirect) of the current flow, editable for a custom address;
         // normalizeUrl keeps bare input usable, repo.add upserts by URL.
@@ -1358,9 +1361,10 @@ class MainActivity : AppCompatActivity() {
             val title = if (onCurrentPage) webView.title?.takeIf { it.isNotBlank() } ?: host else host
             current = repo.add(Bookmark(title, url))
             // clear any active filter so the new row is actually visible; the watcher
-            // re-renders on the change, and an already-empty field fires no event
+            // fires synchronously inside setText, so render here only when it did not
+            val hadFilter = search.text.isNotBlank()
             search.setText("")
-            if (search.text.isEmpty()) render(current)
+            if (!hadFilter) render(current)
             urlInput.setText(url)
         }
 

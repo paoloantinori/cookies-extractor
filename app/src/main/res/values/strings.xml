@@ -12,7 +12,7 @@
     <string name="bm_add">Add</string>
     <string name="bookmarks_empty">No bookmarks saved</string>
     <string name="bm_search_hint">Search bookmarks</string>
-    <string name="bookmarks_no_match">No bookmarks match.</string>
+    <string name="bookmarks_no_match">No bookmarks match</string>
     <string name="toast_bm_empty_input">Enter a URL first.</string>
     <string name="bm_delete_cd">Delete bookmark</string>
     <string name="toast_scheme_not_loadable">The WebView cannot load this URL scheme.</string>
