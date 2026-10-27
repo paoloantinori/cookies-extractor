@@ -42,6 +42,7 @@ import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.annotation.StringRes
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.widget.doAfterTextChanged
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -1296,7 +1297,7 @@ class MainActivity : AppCompatActivity() {
         showTracked(dialog)
     }
 
-    /** Shows the bookmarks bottom sheet: add by URL, tap to load, delete. */
+    /** Shows the bookmarks bottom sheet: add by URL, tap to load, delete, search (COK-36). */
     private fun showBookmarks() {
         val dialog = BottomSheetDialog(this)
         val sheet = layoutInflater.inflate(R.layout.dialog_bookmarks, null)
@@ -1304,21 +1305,34 @@ class MainActivity : AppCompatActivity() {
         val empty: TextView = sheet.findViewById(R.id.bookmarks_empty)
         val urlInput: EditText = sheet.findViewById(R.id.bm_url_input)
         val addButton: Button = sheet.findViewById(R.id.bm_add)
+        val search: EditText = sheet.findViewById(R.id.bm_search)
 
+        // The sheet's working list: add and delete reuse the fresh list the repo
+        // returns. Text-change renders re-read the repo instead, because the debug
+        // channel's /api/v1/bookmarks/add|delete can mutate it while the sheet is open.
+        var current = repo.load()
+
+        // sort + filter are applied at every render (the query is read from the widget,
+        // so no state to keep in sync), so add, delete and typing all agree
         fun render(items: List<Bookmark>) {
+            val visible = BookmarksView.sorted(BookmarksView.filter(items, search.text.toString()))
             list.removeAllViews()
-            empty.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
-            items.forEach { bm ->
+            empty.visibility = if (visible.isEmpty()) View.VISIBLE else View.GONE
+            empty.setText(if (items.isEmpty()) R.string.bookmarks_empty else R.string.bookmarks_no_match)
+            visible.forEach { bm ->
                 val row = layoutInflater.inflate(R.layout.item_bookmark, list, false)
-                row.findViewById<TextView>(R.id.bm_title).text = bm.title.ifBlank { bm.url }
+                row.findViewById<TextView>(R.id.bm_title).text = BookmarksView.label(bm)
                 row.findViewById<TextView>(R.id.bm_url).text = bm.url
                 row.setOnClickListener { loadUrl(bm.url); dialog.dismiss() }
                 row.findViewById<ImageButton>(R.id.bm_delete).setOnClickListener {
-                    render(repo.remove(bm))
+                    current = repo.remove(bm)
+                    render(current)
                 }
                 list.addView(row)
             }
         }
+
+        search.doAfterTextChanged { render(repo.load()) }
 
         // The entry URL (pre-redirect) of the current flow, editable for a custom address;
         // normalizeUrl keeps bare input usable, repo.add upserts by URL.
@@ -1342,7 +1356,11 @@ class MainActivity : AppCompatActivity() {
             val host = Uri.parse(url).host.orEmpty().ifBlank { url }
             val onCurrentPage = webView.url?.removeSuffix("/") == url.removeSuffix("/")
             val title = if (onCurrentPage) webView.title?.takeIf { it.isNotBlank() } ?: host else host
-            render(repo.add(Bookmark(title, url)))
+            current = repo.add(Bookmark(title, url))
+            // clear any active filter so the new row is actually visible; the watcher
+            // re-renders on the change, and an already-empty field fires no event
+            search.setText("")
+            if (search.text.isEmpty()) render(current)
             urlInput.setText(url)
         }
 
@@ -1350,7 +1368,7 @@ class MainActivity : AppCompatActivity() {
         // The EditText row makes the sheet open in the collapsed peek state; force it
         // expanded or the add row sits below the fold (observed on device).
         dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
-        render(repo.load())
+        render(current)
         showTracked(dialog)
     }
 

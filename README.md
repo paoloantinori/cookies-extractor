@@ -28,6 +28,7 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   {"version":2,"cookies":[{"name":"SID","value":"...","domain":".google.com"}]}
   ```
 - **Bookmarks** (overflow menu): add by URL or current entry URL, tap to reload, delete.
+  The list renders sorted by label and a search box filters it as you type.
 - **OAuth redirect capture**: non-http OAuth redirects (e.g. `urn:ietf:wg:oauth:2.0:oob?code=…`)
   are caught before the WebView shows an error page, and the **full redirect URL is shared as
   one line** (a URL has no spaces, so no paste or relay hop can corrupt the code). A Snackbar
@@ -154,7 +155,7 @@ GET-only, matching the channel's parser.
 | `/api/v1/cookies` | `{"url": ..., "cookies": ...}` for the current page; `?format=structured` returns the version-2 multi-domain JSON, the same document the share FAB emits with the structured format active (the FAB's flat/structured toggle does not affect the API; 404 `no_cookies` when the jar is empty) |
 | `/api/v1/capture` | `{"url": ...}` the captured redirect (404 `no_capture` if none) |
 | `/api/v1/clear` | wipes cookies + storage and reloads |
-| `/api/v1/bookmarks` | list; `.../add?url=&title=` and `.../delete?url=` mutate |
+| `/api/v1/bookmarks` | list (stored insertion order; the sheet sorts by label); `.../add?url=&title=` and `.../delete?url=` mutate |
 | `/api/v1/template` / `.../set?t=` | read / replace the share template (empty `t` clears) |
 | `/api/v1/console?n=50` | last N page-console lines |
 | `/api/v1/fill?selector=&value=` | sets an input/textarea via JS (native setter + input/change events); selector is CSS, a bare name falls back to `[name=...]` |

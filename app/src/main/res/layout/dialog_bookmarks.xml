@@ -38,13 +38,22 @@
             android:text="@string/bm_add" />
     </LinearLayout>
 
+    <!-- Quick search (COK-36): filters the sorted list as you type -->
+    <EditText
+        android:id="@+id/bm_search"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/bm_search_hint"
+        android:imeOptions="actionSearch"
+        android:inputType="text"
+        android:maxLines="1" />
+
     <TextView
         android:id="@+id/bookmarks_empty"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center"
         android:padding="16dp"
-        android:text="@string/bookmarks_empty"
         android:visibility="gone" />
 
     <androidx.core.widget.NestedScrollView
