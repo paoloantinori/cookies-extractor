@@ -1,9 +1,11 @@
 package com.cookiesextractor.app
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 
 class CookieCollectorTest {
 
@@ -341,5 +343,61 @@ class CookieCollectorTest {
     @Test
     fun parseExtraUrlsEmptyInputYieldsEmptyList() {
         assertEquals(emptyList<String>(), CookieCollector.parseExtraUrls("  \n# only comments\n"))
+    }
+
+    // ---- withSlackTokens (gateway contract COK-35) ----
+
+    private val envelope =
+        CookieCollector.toJson(listOf(CookieCollector.Cookie("d", "dv", ".slack.com")))
+
+    @Test
+    fun slackTokensSpliceIntoEnvelope() {
+        val spliced = CookieCollector.withSlackTokens(
+            envelope,
+            """[{"team_id":"T123","enterprise_id":"E456","team_name":"IBM","xoxc":"xoxc-1-2-3-4"}]""",
+        )!!
+        // parse instead of string-compare: the test org.json does not guarantee key order
+        val obj = JSONObject(spliced)
+        assertEquals(3, obj.length()) // version, cookies, slack
+        val token = obj.getJSONObject("slack").getJSONArray("tokens").getJSONObject(0)
+        assertEquals("T123", token.getString("team_id"))
+        assertEquals("E456", token.getString("enterprise_id"))
+        assertEquals("IBM", token.getString("team_name"))
+        assertEquals("xoxc-1-2-3-4", token.getString("xoxc"))
+        // the cookie part rides untouched
+        assertEquals("d", obj.getJSONArray("cookies").getJSONObject(0).getString("name"))
+        assertEquals(".slack.com", obj.getJSONArray("cookies").getJSONObject(0).getString("domain"))
+        assertTrue(spliced.endsWith("}}"))
+    }
+
+    @Test
+    fun absentOptionalFieldsEmitJsonNull() {
+        val spliced = CookieCollector.withSlackTokens(
+            envelope,
+            """[{"team_id":"T1","xoxc":"xoxc-9-9-9-9"}]""",
+        )!!
+        assertTrue(spliced.contains(""""enterprise_id":null"""))
+        assertTrue(spliced.contains(""""team_name":null"""))
+    }
+
+    @Test
+    fun nullInvalidOrEmptyTokensLeaveEnvelopeUnchanged() {
+        assertNull(CookieCollector.withSlackTokens(envelope, null))
+        assertNull(CookieCollector.withSlackTokens(envelope, "not json"))
+        assertNull(CookieCollector.withSlackTokens(envelope, "[]"))
+        assertNull(CookieCollector.withSlackTokens(envelope, """[{"nope":1}]"""))
+        assertNull(CookieCollector.withSlackTokens(envelope, """[{"team_id":"","xoxc":"xoxc-1"}]"""))
+        // a malformed envelope degrades to "no slack field", never corrupt JSON
+        assertNull(CookieCollector.withSlackTokens("not an envelope", """[{"team_id":"T1","xoxc":"xoxc-1-1-1-1"}]"""))
+    }
+
+    @Test
+    fun nonXoxcTokensAreFilteredButSurvivorsShip() {
+        val spliced = CookieCollector.withSlackTokens(
+            envelope,
+            """[{"team_id":"T1","xoxc":"xoxs-other"},{"team_id":"T2","xoxc":"xoxc-keep-me"}]""",
+        )!!
+        assertTrue(spliced.contains("T2"))
+        assertFalse(spliced.contains("T1"))
     }
 }

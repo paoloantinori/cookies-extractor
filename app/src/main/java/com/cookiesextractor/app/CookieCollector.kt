@@ -1,8 +1,13 @@
 package com.cookiesextractor.app
 
+import org.json.JSONArray
+import org.json.JSONObject
+
 /**
  * Multi-domain cookie collection with structured JSON serialization. Pure JVM:
- * no Android imports, runs under plain JUnit like RedirectCapture and DebugHttp.
+ * no Android imports, runs under plain JUnit like RedirectCapture and DebugHttp
+ * (org.json resolves to the platform classes at runtime and to the TEST-scoped
+ * shadow artifact under unit tests, same as MonitorAlerts).
  */
 object CookieCollector {
 
@@ -122,7 +127,7 @@ object CookieCollector {
         return labels.size == 4 && labels.all { it.isNotEmpty() && it.all { c -> c.isDigit() } }
     }
 
-    private fun hostFromUrl(url: String): String? {
+    internal fun hostFromUrl(url: String): String? {
         val afterScheme = url.substringAfter("://", "")
         if (afterScheme.isEmpty()) return null
         // the authority ends at /, ?, or # (a query-only URL is not part of the host)
@@ -180,4 +185,49 @@ object CookieCollector {
         sb.append("]}")
         return sb.toString()
     }
+
+    /**
+     * Validates and canonicalizes the raw token entries [Api.SLACK_TOKENS_SCRIPT]
+     * returns: entries survive only with a non-blank team_id and an xoxc- prefixed
+     * token; enterprise_id and team_name emit as JSON null when absent. Null when the
+     * input is null, unparsable, or empty after filtering.
+     */
+    internal fun filteredSlackTokens(tokensJson: String?): JSONArray? {
+        if (tokensJson == null) return null
+        val entries = runCatching { JSONArray(tokensJson) }.getOrNull() ?: return null
+        val tokens = JSONArray()
+        for (i in 0 until entries.length()) {
+            val entry = entries.optJSONObject(i) ?: continue
+            val teamId = entry.optString("team_id").trim()
+            val xoxc = entry.optString("xoxc").trim()
+            if (teamId.isEmpty() || !xoxc.startsWith("xoxc-")) continue
+            val enterpriseId = entry.optString("enterprise_id").trim()
+            val teamName = entry.optString("team_name").trim()
+            tokens.put(
+                JSONObject()
+                    .put("team_id", teamId)
+                    .put("enterprise_id", if (enterpriseId.isEmpty()) JSONObject.NULL else enterpriseId)
+                    .put("team_name", if (teamName.isEmpty()) JSONObject.NULL else teamName)
+                    .put("xoxc", xoxc)
+            )
+        }
+        return if (tokens.length() == 0) null else tokens
+    }
+
+    /**
+     * Splices the gateway contract's optional slack field (COK-35) into a [toJson]
+     * envelope: ,"slack":{"tokens":[{team_id,enterprise_id,team_name,xoxc}...]}. Null
+     * when [filteredSlackTokens] yields nothing: the caller then shares the envelope
+     * unchanged, so a malformed read can never corrupt the share.
+     */
+    fun withSlackTokens(envelope: String, tokensJson: String?): String? {
+        val tokens = filteredSlackTokens(tokensJson) ?: return null
+        // splice before the root brace; any envelope shape change degrades to "no slack
+        // field" instead of corrupt JSON
+        if (!envelope.endsWith("]}")) return null
+        return envelope.dropLast(1) + ",\"slack\":{\"tokens\":" + tokens + "}}"
+    }
+
+    /** Entry count of the filtered slack tokens (0 when none); shares the single filter. */
+    fun slackTokenCount(tokensJson: String?): Int = filteredSlackTokens(tokensJson)?.length() ?: 0
 }

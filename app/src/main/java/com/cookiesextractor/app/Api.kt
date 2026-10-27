@@ -23,6 +23,15 @@ object Api {
     fun normalizeUserUrl(raw: String): String =
         if (raw.contains("://")) raw else "https://$raw"
 
+    /** True for slack.com and any *.slack.com host (COK-35: these hosts get the desktop
+     *  user agent automatically, because Slack gates its web client on the agent). Host
+     *  extraction is CookieCollector.hostFromUrl and the family rule is hostFamilyKey:
+     *  the project's shared policies, never re-inlined copies. */
+    fun isSlackHost(url: String?): Boolean {
+        val host = url?.let { CookieCollector.hostFromUrl(it) } ?: return false
+        return CookieCollector.hostFamilyKey(host) == "slack.com"
+    }
+
     const val API_LEVEL = 1
     const val PREFIX = "/api/v1"
 
@@ -142,6 +151,54 @@ object Api {
             "e.click?e.click():e.dispatchEvent(new Event('click',{bubbles:true}));" +
             "return'ok'})()"
     }
+
+    /**
+     * JS for the slack share enrichment (COK-35): returns a JSON array string of
+     * {team_id, enterprise_id, team_name, xoxc} entries, or null when the page holds no
+     * signed-in session. Two strategies combined, both verified against reality:
+     * (A) the global localConfig_v2 teams map (shape read from the client bundle at
+     * a.slack-edge.com, 2026-10-27), which carries team id/name/enterprise precisely;
+     * (B) a scan of every other storage key's value for an xoxc token, with the team
+     * taken from the value's team_id/team fields or from the key name (heuristics
+     * live-proven for months on desktop Chrome by the local_ai CDP capture, relayed
+     * 2026-10-27: tokens live under several keys of the localConfig_v2_<TEAM> family,
+     * not one). Same-team rewrites: last write wins. prevTeams is never read: the
+     * client strips tokens from expired teams itself. Storage is localStorage with the
+     * client's own sessionStorage fallback. Values never appear in any log.
+     */
+    val SLACK_TOKENS_SCRIPT =
+        "(function(){try{var st=null;try{st=window.localStorage}catch(e){}" +
+            "if(!st)try{st=window.sessionStorage}catch(e){}" +
+            "if(!st)return null;" +
+            "var found={};function put(t,e,n,x){var p=found[t];found[t]={team_id:t," +
+            "enterprise_id:(e||(p&&p.enterprise_id))||null," +
+            "team_name:(n||(p&&p.team_name))||null,xoxc:x}}" +
+            "var raw=null;try{raw=st.getItem('localConfig_v2')}catch(e){}" +
+            "if(raw){var cfg=null;try{cfg=JSON.parse(raw)}catch(e){}" +
+            "if(cfg&&cfg.teams)Object.keys(cfg.teams).forEach(function(k){" +
+            "var t=cfg.teams[k];if(!t||typeof t!=='object')return;" +
+            "var tok=t.token;if(typeof tok!=='string'||tok.indexOf('xoxc-')!==0)return;" +
+            "put(typeof t.id==='string'&&t.id?t.id:k," +
+            "typeof t.enterprise_id==='string'?t.enterprise_id:null," +
+            "typeof t.name==='string'?t.name:null,tok)})}" +
+            "var RX=/xoxc-\\d+-\\d+-\\d+-[a-f0-9]+/;" +
+            "for(var i=0;i<st.length;i++){" +
+            "var k=st.key(i);if(k==='localConfig_v2')continue;" +
+            "var v=null;try{v=st.getItem(k)}catch(e){}" +
+            "if(!v)continue;var m=v.match(RX);if(!m)continue;" +
+            "var team=null;var tm=null;" +
+            "tm=v.match(/\"team_id\"\\s*:\\s*\"(T[A-Z0-9]+)\"/);if(tm)team=tm[1];" +
+            "if(!team){tm=v.match(/\"team\"\\s*:\\s*\"(T[A-Z0-9]+)\"/);if(tm)team=tm[1]}" +
+            "if(!team){tm=k.match(/_v2_(T[A-Z0-9]{6,})/);if(tm)team=tm[1]}" +
+            "if(!team){tm=k.match(/(T[A-Z0-9]{6,})/);if(tm)team=tm[1]}" +
+            "if(!team)continue;" +
+            "var ent=null;var em=v.match(/\"enterprise_id\"\\s*:\\s*\"(E[A-Z0-9]+)\"/);if(em)ent=em[1];" +
+            "var name=null;if(k.indexOf('localConfig')!==-1){" +
+            "var nm=v.match(/\"name\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"/);" +
+            "if(nm)try{name=JSON.parse('\"'+nm[1]+'\"')}catch(e){}}" +
+            "put(team,ent,name,m[0])}" +
+            "var out=[];Object.keys(found).forEach(function(k){out.push(found[k])});" +
+            "return out.length?JSON.stringify(out):null}catch(e){return null}})()"
 
     /** /api/v1/info body; [versionName] comes from BuildConfig on the app side. */
     fun infoJson(versionName: String): String =

@@ -213,7 +213,7 @@ class MainActivity : AppCompatActivity() {
             // blank-target clicks are dropped silently by the renderer without it (issue #1, slack.com workspace cards)
             setSupportMultipleWindows(true)
         }
-        applyUserAgent()
+        applyUserAgentFor()
         webView.webViewClient = CapturingWebViewClient() // keep navigation in-app (PRD §4.2/§4.3)
 
         // COK-10: while the debug channel is enabled, keep the page console in the channel's
@@ -243,7 +243,10 @@ class MainActivity : AppCompatActivity() {
                         if (!hitDone) {
                             hitDone = true
                             val url = request.url.toString()
-                            if (isLoadableUrl(url)) view.loadUrl(url)
+                            if (isLoadableUrl(url)) {
+                                applyUserAgentFor(url)
+                                view.loadUrl(url)
+                            }
                             // post, not inline: destroy from inside the temp WebView's own
                             // callback races the callback's unwind on the renderer side
                             view.post { hit.destroy() }
@@ -280,6 +283,11 @@ class MainActivity : AppCompatActivity() {
             // fallbacks); only a main-frame redirect carries the authorization code, and an
             // iframe capture would overwrite the real one.
             if (!request.isForMainFrame) return false
+            // per-target UA policy (COK-35) before the WebView starts this load; only
+            // for real page loads: resetting the agent on a blocked capture-scheme
+            // redirect would flip the committed slack client's subresources to mobile
+            val target = request.url.toString()
+            if (URLUtil.isNetworkUrl(target)) applyUserAgentFor(target)
             return captureIfRedirect(request)
         }
 
@@ -337,22 +345,72 @@ class MainActivity : AppCompatActivity() {
 
     /** Reads session cookies and shares them (PRD §4.4, multi-domain COK-30). */
     private fun onExtractCookies() {
-        val structured = isStructuredCookieFormat()
-        // one nullable payload for both formats: null means the jar gave us nothing
-        val payload =
-            if (structured) extractCookiesStructured()
-            else extractCookiesFlat().ifBlank { null }
+        if (isStructuredCookieFormat()) {
+            structuredDocument(notifyNoSession = true) { document ->
+                if (document == null) {
+                    Toast.makeText(this, R.string.toast_no_cookies, Toast.LENGTH_SHORT).show()
+                } else {
+                    // raw JSON is the message: no prose preamble, machine-parseable end to end
+                    shareViaChooser(document, null, R.string.share_chooser_title)
+                }
+            }
+        } else {
+            val flat = extractCookiesFlat().ifBlank { null }
+            if (flat == null) {
+                Toast.makeText(this, R.string.toast_no_cookies, Toast.LENGTH_SHORT).show()
+            } else {
+                shareCookies(flat)
+            }
+        }
+    }
+
+    /**
+     * Builds the version-2 document both egresses emit (the share FAB and
+     * /api/v1/cookies?format=structured, COK-24 parity): cookies for the loaded URL plus
+     * the configured extra domains, plus the optional slack tokens field when the page
+     * is a slack.com host (COK-35; the localStorage read is async, so the document
+     * arrives on the UI-thread callback). Null means the jar gave us nothing.
+     */
+    private fun structuredDocument(notifyNoSession: Boolean, callback: (String?) -> Unit) {
+        val payload = extractCookiesStructured()
         if (payload == null) {
-            Toast.makeText(this, R.string.toast_no_cookies, Toast.LENGTH_SHORT).show()
+            callback(null)
             return
         }
-        // COK-19: cookie values reach logcat in DEBUG builds only, one shared copy
+        // COK-19: cookie values reach logcat in DEBUG builds only, one shared copy, from
+        // both egresses (the share FAB and the debug-channel API, so an agent polling
+        // /cookies sees the same debug trace a manual share does). The slack tokens are
+        // never logged in any build: this log sees the cookie payload before the slack
+        // field is spliced in.
         if (BuildConfig.DEBUG) Log.i(TAG, "Cookies for ${webView.url}:\n$payload")
-        if (structured) {
-            // raw JSON is the message: no prose preamble, machine-parseable end to end
-            shareViaChooser(payload, null, R.string.share_chooser_title)
-        } else {
-            shareCookies(payload)
+        if (!Api.isSlackHost(webView.url)) {
+            callback(payload)
+            return
+        }
+        readSlackTokens { tokensJson ->
+            if (notifyNoSession) {
+                if (tokensJson == null) {
+                    Toast.makeText(this, R.string.toast_slack_no_session, Toast.LENGTH_SHORT).show()
+                } else {
+                    // count only, from the same single filter that builds the field
+                    val n = CookieCollector.slackTokenCount(tokensJson)
+                    Toast.makeText(this, getString(R.string.toast_slack_tokens_fmt, n), Toast.LENGTH_SHORT).show()
+                }
+            }
+            callback(CookieCollector.withSlackTokens(payload, tokensJson) ?: payload)
+        }
+    }
+
+    /**
+     * Evaluates [Api.SLACK_TOKENS_SCRIPT] in the current page and hands the callback the
+     * tokens JSON array string, or null when the session is not signed in. Never logs
+     * values.
+     */
+    private fun readSlackTokens(callback: (String?) -> Unit) {
+        webView.evaluateJavascript(Api.SLACK_TOKENS_SCRIPT) { result ->
+            // result can arrive null (renderer torn down mid-eval); jsonUnescape takes
+            // non-null, so guard before it like the /text endpoint does
+            callback(result?.let { DebugHttp.jsonUnescape(it) }?.takeIf { s -> s.startsWith("[") })
         }
     }
 
@@ -392,37 +450,50 @@ class MainActivity : AppCompatActivity() {
         getPreferences(MODE_PRIVATE).getBoolean(PREF_DESKTOP_SITE, false)
 
     /**
-     * Swaps the whole UA string: some services gate their real web client on it and serve
-     * a "get the app" interstitial to mobile agents (slack.com workspace domains,
-     * 2026-10-27). Null restores the WebView default. Applied at configuration time and
-     * from the overflow toggle, which reloads so the change is visible on the spot.
+     * Swaps the whole UA string. The manual toggle wins everywhere; with it off,
+     * slack.com hosts still ride the desktop agent because Slack UA-gates its web client
+     * (mobile agents get the "get the app" interstitial; device-proven 2026-10-27).
+     * Callers pass the URL of the load about to start, so the agent is right before the
+     * request goes out; configureWebView passes null (restore time, toggle only).
+     * Null restores the WebView default. Residual: back/forward traversals and the
+     * restoreState reload start with the previous agent (Android has no pre-load hook
+     * there); the next funnel load self-corrects.
      */
-    private fun applyUserAgent(desktop: Boolean = isDesktopSite()) {
-        webView.settings.userAgentString = if (desktop) desktopUserAgent() else null
+    private fun applyUserAgentFor(url: String? = null) {
+        webView.settings.userAgentString =
+            if (isDesktopSite() || Api.isSlackHost(url)) desktopUa else null
     }
 
     /**
-     * Derives the desktop UA from the live WebView default instead of freezing a Chrome
-     * version into the APK: swap the platform parenthetical and drop the Mobile token, so
-     * the Chrome version tracks the installed WebView. Services that version-check the UA
-     * (Google sign-in notably) degrade on stale version tokens.
+     * Derived once, not per navigation: the value is process-stable. Built from the live
+     * WebView default instead of a frozen Chrome version, so the Chrome token tracks the
+     * installed WebView (services that version-check the UA, Google sign-in notably,
+     * degrade on stale versions).
      */
-    private fun desktopUserAgent(): String =
+    private val desktopUa: String by lazy {
         WebSettings.getDefaultUserAgent(this)
-            .replaceFirst(Regex("\\([^)]*\\)"), "(X11; Linux x86_64)")
+            .replaceFirst(DESKTOP_PLATFORM_REGEX, "(X11; Linux x86_64)")
             .replace(" Mobile Safari", " Safari")
+    }
 
     private fun toggleDesktopSite() {
         val nowDesktop = !isDesktopSite()
         getPreferences(MODE_PRIVATE).edit().putBoolean(PREF_DESKTOP_SITE, nowDesktop).apply()
-        applyUserAgent(nowDesktop)
         // Reload anything with a network URL: about:blank or a restored-but-empty state
         // has nothing to re-fetch, and a failed page usefully retries under the new UA
         // (webView.url still reports the failed URL after an error page).
-        if (currentNetworkUrl() != null) webView.reload()
+        currentNetworkUrl()?.let { url ->
+            applyUserAgentFor(url)
+            webView.reload()
+        }
+        // report what actually applies to the current page: turning the toggle off on a
+        // slack.com page still rides the desktop agent there (COK-35 policy), and the
+        // toast must not claim otherwise
+        val effectiveDesktop = nowDesktop ||
+            currentNetworkUrl()?.let { Api.isSlackHost(it) } == true
         Toast.makeText(
             this,
-            if (nowDesktop) R.string.toast_desktop_on else R.string.toast_desktop_off,
+            if (effectiveDesktop) R.string.toast_desktop_on else R.string.toast_desktop_off,
             Toast.LENGTH_SHORT,
         ).show()
     }
@@ -469,6 +540,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun navigate(url: String) {
         setCaptured(null)
+        applyUserAgentFor(url)
         webView.loadUrl(url)
     }
 
@@ -845,16 +917,28 @@ class MainActivity : AppCompatActivity() {
         }
         is Api.Command.Cookies -> withUi<Api.Outcome>(3000) { f ->
             if (cmd.structured) {
-                // same collection the share FAB runs (COK-31/33): the response body IS
+                // same producer the share FAB runs (COK-31/33/35): the response body IS
                 // the version-2 document, the same payload the share emits when the
                 // structured format is active (the FAB toggle never affects the API; a
                 // configured template wraps the share but never this API), so the
                 // gateway can consume either source with one parser
-                val json = extractCookiesStructured()
-                f.complete(
-                    if (json == null) Api.Outcome.Err(404, "no_cookies", "no cookies in the jar")
-                    else Api.Outcome.Ok(200, json)
-                )
+                structuredDocument(notifyNoSession = false) { document ->
+                    f.complete(
+                        if (document == null) Api.Outcome.Err(404, "no_cookies", "no cookies in the jar")
+                        else Api.Outcome.Ok(200, document)
+                    )
+                }
+                // safety net: a dead renderer never invokes the slack read's JS callback,
+                // and that must not downgrade an endpoint whose cookie jar is fully
+                // readable; future.complete is first-wins, so a late real document is
+                // simply discarded
+                webView.postDelayed({
+                    f.complete(
+                        extractCookiesStructured()
+                            ?.let { Api.Outcome.Ok(200, it) }
+                            ?: Api.Outcome.Err(404, "no_cookies", "no cookies in the jar")
+                    )
+                }, 1200)
             } else {
                 val url = webView.url
                 val cookies = url?.let { CookieManager.getInstance().getCookie(it) }
@@ -1284,5 +1368,6 @@ class MainActivity : AppCompatActivity() {
         private const val NAV_WAIT_LOAD_MS = 10_000L
         private const val PREF_STRUCTURED_COOKIES = "structured_cookies"
         private const val PREF_DESKTOP_SITE = "desktop_site"
+        private val DESKTOP_PLATFORM_REGEX = Regex("\\([^)]*\\)")
     }
 }

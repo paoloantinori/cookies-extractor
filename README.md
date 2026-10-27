@@ -37,7 +37,13 @@ exactly like in a normal browser, then tap one button to pull the session cookie
 - **Desktop site** (overflow menu): swaps the WebView's user agent to a desktop Chrome one
   and reloads. Some services gate their real web client on the user agent (Slack workspace
   domains serve a "get the app" page to mobile agents); this is the browser-standard
-  escape hatch, default off.
+  escape hatch, default off. slack.com hosts get the desktop agent automatically even
+  with the toggle off, so the Slack login reaches the web client on its own.
+- **Slack tokens in the share** (structured format): sharing from a slack.com page adds
+  an optional top-level `slack` field to the version-2 envelope carrying the web
+  client's per-team tokens (`{team_id, enterprise_id, team_name, xoxc}`) read from
+  the page's localStorage, next to the usual cookies. Nothing is added when no signed-in
+  session is found; a toast says so.
 - **Session monitor** (overflow menu): polls a state document on your gateway and raises a
   native notification when a service's login expires (see the dedicated section).
 - **Debug channel** (overflow menu, Developer options): opt-in HTTP endpoint to pilot the app from a laptop

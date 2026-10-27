@@ -102,6 +102,43 @@ class ApiTest {
         assertEquals("https://", Api.normalizeUserUrl("https://"))
     }
 
+    // ---- isSlackHost ----
+
+    @Test
+    fun slackHostsMatchApexAndSubdomains() {
+        assertTrue(Api.isSlackHost("https://slack.com/"))
+        assertTrue(Api.isSlackHost("https://app.slack.com/client/T/C"))
+        assertTrue(Api.isSlackHost("https://ibm-cloud.slack.com/?x=1"))
+        assertTrue(Api.isSlackHost("https://user@team.slack.com/#/dir"))
+        assertTrue(Api.isSlackHost("https://team.slack.com:443/"))
+    }
+
+    @Test
+    fun nonSlackHostsDoNotMatch() {
+        assertFalse(Api.isSlackHost("https://slack.com.evil.io/"))
+        assertFalse(Api.isSlackHost("https://notslack.com/"))
+        assertFalse(Api.isSlackHost("https://slack.co"))
+        assertFalse(Api.isSlackHost("https://example.com/"))
+        assertFalse(Api.isSlackHost(""))
+        assertFalse(Api.isSlackHost(null))
+    }
+
+    @Test
+    fun slackTokensScriptCarriesTheVerifiedContract() {
+        val js = Api.SLACK_TOKENS_SCRIPT
+        assertTrue(js.startsWith("(function(){"))
+        // strategy A: the source-verified global config map
+        assertTrue(js.contains("localConfig_v2"))
+        // strategy B: value scan with the CDP-proven team heuristics
+        assertTrue(js.contains("xoxc-"))
+        assertTrue(js.contains("\"team_id\""))
+        assertTrue(js.contains("_v2_"))
+        // the client's own storage fallback
+        assertTrue(js.contains("sessionStorage"))
+        // prevTeams is never read: expired teams carry no tokens
+        assertFalse(js.contains("prevTeams"))
+    }
+
     @Test
     fun cookiesFormatParameterSelectsStructured() {
         assertEquals(
