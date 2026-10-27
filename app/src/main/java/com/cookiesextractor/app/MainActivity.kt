@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
@@ -208,6 +209,8 @@ class MainActivity : AppCompatActivity() {
         with(webView.settings) {
             javaScriptEnabled = true   // PRD §4.3
             domStorageEnabled = true   // PRD §4.3
+            // blank-target clicks are dropped silently by the renderer without it (issue #1, slack.com workspace cards)
+            setSupportMultipleWindows(true)
         }
         webView.webViewClient = CapturingWebViewClient() // keep navigation in-app (PRD §4.2/§4.3)
 
@@ -220,6 +223,35 @@ class MainActivity : AppCompatActivity() {
                 channel.console.add(
                     "[${msg.messageLevel()}] ${msg.message()} @ ${msg.sourceId()}:${msg.lineNumber()}"
                 )
+                return true
+            }
+
+            override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
+                // Single-tab model: hand Chromium a throwaway WebView whose only job is to surface
+                // the target URL, then load it into THIS WebView through the shared loadability
+                // gate (issue #1, COK-40). Deliberately raw loadUrl, not navigate(): a
+                // page-initiated click must not release a held capture. A capture-scheme target
+                // is dropped by that gate, so a crafted link cannot clobber a held OAuth code.
+                // Residual: window.open("") popups that document.write in place never navigate
+                // here and keep the throwaway WebView until process death.
+                val hit = WebView(view.context)
+                var hitDone = false
+                hit.webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(v: WebView, request: WebResourceRequest): Boolean {
+                        if (!hitDone) {
+                            hitDone = true
+                            val url = request.url.toString()
+                            if (isLoadableUrl(url)) view.loadUrl(url)
+                            // post, not inline: destroy from inside the temp WebView's own
+                            // callback races the callback's unwind on the renderer side
+                            view.post { hit.destroy() }
+                        }
+                        return true
+                    }
+                }
+                val transport = resultMsg.obj as? WebView.WebViewTransport ?: return false
+                transport.webView = hit
+                resultMsg.sendToTarget()
                 return true
             }
         }
@@ -389,7 +421,11 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    /** All programmatic loadUrl navigation funnels here so the capture is released exactly once. */
+    /**
+     * All programmatic loadUrl navigation funnels here so the capture is released exactly once.
+     * The one documented exception is the onCreateWindow blank-target routing (chrome client):
+     * a page-initiated click loads raw, keeping a held capture.
+     */
     private fun navigate(url: String) {
         setCaptured(null)
         webView.loadUrl(url)
