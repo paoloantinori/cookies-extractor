@@ -90,6 +90,33 @@ class RedirectCaptureTest {
         }
     }
 
+    // ---- isLoadablePageUrl / isAndroidAssetUrl: the bundled-asset allowance ----
+
+    @Test
+    fun loadablePageUrlAllowsBundledAssetsAndNothingElseInFileScheme() {
+        // The bundled guide: loadable from the address bar, bookmarks, and the menu.
+        assertTrue(RedirectCapture.isLoadablePageUrl("file:///android_asset/guide.html"))
+        // The generator produces exactly what the classifier accepts (no desync).
+        assertEquals("file:///android_asset/guide.html", RedirectCapture.androidAssetUrl("guide.html"))
+        assertTrue(RedirectCapture.isLoadablePageUrl(RedirectCapture.androidAssetUrl("guide.html")))
+        // Scheme compares case-insensitively (matching shouldCaptureScheme), path exactly.
+        assertTrue(RedirectCapture.isLoadablePageUrl("FILE:///android_asset/guide.html"))
+        assertFalse(RedirectCapture.isLoadablePageUrl("file:///ANDROID_ASSET/guide.html"))
+        // Every other file: URL stays a capture scheme.
+        assertFalse(RedirectCapture.isLoadablePageUrl("file:///sdcard/cookies.html"))
+        assertFalse(RedirectCapture.isAndroidAssetUrl("file:///sdcard/cookies.html"))
+        // Pre-existing semantics unchanged.
+        assertTrue(RedirectCapture.isLoadablePageUrl("https://example.com/"))
+        assertTrue(RedirectCapture.isLoadablePageUrl("no-scheme-hostname"))
+        assertFalse(RedirectCapture.isLoadablePageUrl("urn:ietf:wg:oauth:2.0:oob?code=x"))
+        // The scheme is everything before the first colon; Uri.parse's leniency for
+        // dirty pseudo-schemes is gone on purpose. Real callers normalize first (the
+        // address bar, the bookmark sheet, the SPI bookmark add), so only malformed
+        // input reaches these, and rejecting it at the gate beats loading it.
+        assertFalse(RedirectCapture.isLoadablePageUrl(" https://example.com/"))
+        assertFalse(RedirectCapture.isLoadablePageUrl("example.com/path:8080"))
+    }
+
     // ---- shareText: parameter parsing ----
 
     @Test

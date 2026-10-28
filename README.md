@@ -29,6 +29,8 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   ```
 - **Bookmarks** (overflow menu): add by URL or current entry URL, tap to reload, delete.
   The list renders sorted by label and a search box filters it as you type.
+- **Guide** (overflow menu, first entry): quick start, the structured envelope, extra
+  domains, and the share template with copyable examples, on the phone.
 - **OAuth redirect capture**: non-http OAuth redirects (e.g. `urn:ietf:wg:oauth:2.0:oob?code=…`)
   are caught before the WebView shows an error page, and the **full redirect URL is shared as
   one line** (a URL has no spaces, so no paste or relay hop can corrupt the code). A Snackbar

@@ -7,7 +7,7 @@ import java.nio.charset.CharacterCodingException
 /**
  * Pure-JVM classification and parsing of OAuth redirect URLs captured from the WebView (COK-3).
  * Deliberately free of android.* imports so it runs under plain JUnit, where android.jar is
- * stubbed. Both functions are total: they never throw, whatever the WebView hands them.
+ * stubbed. All functions are total: they never throw, whatever the input.
  */
 object RedirectCapture {
 
@@ -19,6 +19,8 @@ object RedirectCapture {
      * HTML, generated files, document links); intercepting them would break ordinary
      * browsing. Everything else (urn:, intent:, custom app schemes, file:) cannot produce
      * a page, so its query string would be lost with an error page unless we capture it.
+     * One exception since COK-37: isLoadablePageUrl admits exactly the bundled-asset
+     * area (file:///android_asset/) as app-curated content.
      * javascript: is classified as capturable but is unreachable at runtime: Blink consumes
      * javascript: URLs in the renderer before any WebViewClient callback fires (the test
      * pins that dead classification on purpose). Visible internal for the policy-equality
@@ -30,6 +32,42 @@ object RedirectCapture {
     /** True iff [scheme] is one the WebView cannot load itself; null (no scheme) is not captured. */
     fun shouldCaptureScheme(scheme: String?): Boolean =
         scheme != null && scheme.lowercase() !in loadableSchemes
+
+    /** The one file: area the app loads on purpose: bundled assets (the in-app guide). */
+    private const val ANDROID_ASSET_PATH = "///android_asset/"
+
+    /**
+     * True for bundled-asset URLs (`file:///android_asset/...`). The scheme compares
+     * case-insensitively like shouldCaptureScheme; the path compares exactly, so no
+     * local-file browsing surface opens beyond the bundled pages.
+     */
+    fun isAndroidAssetUrl(url: String): Boolean {
+        val schemeEnd = url.indexOf(':')
+        if (schemeEnd <= 0) return false
+        return url.substring(0, schemeEnd).equals("file", ignoreCase = true) &&
+            url.startsWith(ANDROID_ASSET_PATH, schemeEnd + 1)
+    }
+
+    /**
+     * Builds the bundled-asset URL for an asset [path] (e.g. "guide.html"): the one
+     * generator for URLs [isAndroidAssetUrl] accepts, so the base is written once.
+     */
+    fun androidAssetUrl(path: String): String = "file:$ANDROID_ASSET_PATH$path"
+
+    /**
+     * True when [url] can be loaded as a page: any URL whose scheme is not a capture
+     * scheme, plus the bundled-asset area. Capture-schemes must stay rejected before
+     * load: their failure would route the URL into onReceivedError's capture path and
+     * be mislabeled as OAuth tokens. Every MainActivity loadable gate delegates here
+     * (address bar, bookmark Add row, SPI bookmark add, onCreateWindow); pure JVM so
+     * the rule runs under plain JUnit.
+     */
+    fun isLoadablePageUrl(url: String): Boolean {
+        if (isAndroidAssetUrl(url)) return true
+        val schemeEnd = url.indexOf(':')
+        if (schemeEnd <= 0) return true
+        return !shouldCaptureScheme(url.substring(0, schemeEnd))
+    }
 
     /**
      * True when a page settling on [currentUrl] releases a capture produced while the app

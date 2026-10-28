@@ -305,8 +305,10 @@ class MainActivity : AppCompatActivity() {
             // Keep the address bar honest across link/JS/redirect navigation, but never
             // clobber an un-submitted draft (only sync a field still showing the last
             // app-written value) and never write a non-http URL: an error-page echo of a
-            // captured redirect carries the code.
-            if (URLUtil.isNetworkUrl(url) && !urlField.hasFocus() &&
+            // captured redirect carries the code. Asset URLs are the one exception:
+            // app-bundled text with no user input, safe to write (COK-37).
+            if ((URLUtil.isNetworkUrl(url) || RedirectCapture.isAndroidAssetUrl(url)) &&
+                !urlField.hasFocus() &&
                 urlField.text.toString() == (syncedUrl ?: "")
             ) {
                 urlField.setText(url)
@@ -338,6 +340,11 @@ class MainActivity : AppCompatActivity() {
 
         private fun captureIfRedirect(request: WebResourceRequest): Boolean {
             val uri = request.url
+            // A bundled-asset load is app-curated help content, never an OAuth carrier:
+            // since COK-37 makes it loadable (even through the onCreateWindow gate), a
+            // failed asset load must not be announced as captured tokens, which would
+            // clobber a held one-time code.
+            if (RedirectCapture.isAndroidAssetUrl(uri.toString())) return false
             if (!RedirectCapture.shouldCaptureScheme(uri.scheme)) return false
             setCaptured(uri.toString())
             return true
@@ -666,14 +673,11 @@ class MainActivity : AppCompatActivity() {
     private fun normalizeUrl(raw: String): String = Api.normalizeUserUrl(raw)
 
     /**
-     * True when a normalized [url] can be loaded as a page. Capture-schemes must be rejected
-     * before load: their failure would route the URL into onReceivedError's capture path and
-     * mislabel it as OAuth tokens. Shared by the address bar and the bookmark Add row.
+     * True when a normalized [url] can be loaded as a page. Delegates to the pure
+     * rule in RedirectCapture: capture schemes stay rejected (their failure would be
+     * mislabeled as OAuth tokens), bundled asset URLs (the guide) are allowed.
      */
-    private fun isLoadableUrl(url: String): Boolean {
-        val scheme = Uri.parse(url).scheme ?: return true
-        return !RedirectCapture.shouldCaptureScheme(scheme)
-    }
+    private fun isLoadableUrl(url: String) = RedirectCapture.isLoadablePageUrl(url)
 
     /**
      * Confirm-then-wipe of all WebView session state (COK-9). A wedged IdP session (server-side
@@ -1235,6 +1239,7 @@ class MainActivity : AppCompatActivity() {
         val structured = isStructuredCookieFormat()
         val desktop = isDesktopSite()
         val entries = listOf<Pair<String, () -> Unit>>(
+            getString(R.string.guide_menu) to { loadUrl(GUIDE_URL) },
             getString(R.string.bookmarks_title) to { showBookmarks() },
             getString(R.string.dev_title) to { showDeveloperOptions() },
             getString(R.string.monitor_title) to { showMonitorDialog() },
@@ -1338,8 +1343,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         // The entry URL (pre-redirect) of the current flow, editable for a custom address;
-        // normalizeUrl keeps bare input usable, repo.add upserts by URL.
-        urlInput.setText(entryUrl ?: currentNetworkUrl() ?: "")
+        // normalizeUrl keeps bare input usable, repo.add upserts by URL. Asset entry URLs
+        // (the guide, COK-37) are not worth re-entering, so they do not prefill.
+        urlInput.setText(entryUrl?.takeIf { URLUtil.isNetworkUrl(it) } ?: currentNetworkUrl() ?: "")
         addButton.setOnClickListener {
             val raw = urlInput.text.toString().trim()
             if (raw.isEmpty()) {
@@ -1384,6 +1390,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "CookieExtractor"
         private const val DEBUG_PORT = 8777
+        private val GUIDE_URL = RedirectCapture.androidAssetUrl("guide.html")
         private const val STATE_CAPTURED_REDIRECT = "captured_redirect"
         private const val STATE_ENTRY_URL = "entry_url"
         private const val MAX_EXTRA_URLS_CHARS = 4000

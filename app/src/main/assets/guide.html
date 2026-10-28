@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cookie Extractor guide</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, sans-serif;
+    margin: 0 auto; max-width: 42rem; padding: 1rem;
+    line-height: 1.55;
+    --pre-bg: #f3f3f3; --border: #d8d8d8;
+    background: #ffffff; color: #1b1b1b;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { --pre-bg: #1e1e1e; --border: #3a3a3a; background: #121212; color: #e6e6e6; }
+  }
+  h1 { font-size: 1.35rem; margin: 0.5rem 0 0.25rem; }
+  h2 { font-size: 1.1rem; margin-top: 1.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.25rem; }
+  pre {
+    overflow-x: auto; padding: 0.75rem; border-radius: 0.5rem;
+    background: var(--pre-bg); font-size: 0.85rem; line-height: 1.4;
+  }
+  code { font-family: ui-monospace, monospace; }
+  p code, li code { background: var(--pre-bg); padding: 0 0.25rem; border-radius: 0.25rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); }
+  .note { opacity: 0.8; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<h1>Cookie Extractor</h1>
+<p>Extract your own session cookies after logging in by hand, then share them
+with any app or script that needs an authenticated session.</p>
+
+<h2 id="quick-start">Quick start</h2>
+<ol>
+  <li>Type the site address in the bar and press <strong>Go</strong>.</li>
+  <li>Log in exactly like in a normal browser: password, 2FA, OTP, or an SSO
+    redirect flow.</li>
+  <li>Tap the round share button at the bottom right.</li>
+  <li>Pick where to send the cookies: a messaging app, the clipboard, a note.</li>
+</ol>
+<p class="note">Nothing leaves the phone until you choose a share target.</p>
+
+<h2 id="structured-share">Structured share (the envelope)</h2>
+<p>The share button sends a version-2 JSON document with cookies from the
+loaded page plus every configured extra domain (see below). The overflow
+menu entry <strong>Switch to flat cookies</strong> changes the share to the
+legacy single-domain cookie string.</p>
+<pre><code>{
+  "version": 2,
+  "cookies": [
+    {"name": "SID", "value": "...", "domain": ".example.com"}
+  ]
+}</code></pre>
+<p>Sharing from a <code>slack.com</code> page while a workspace client is
+signed in adds a <code>slack</code> field with one entry per team
+(<code>team_id</code>, <code>enterprise_id</code>, <code>team_name</code>,
+<code>xoxc</code>). It is simply absent when there is no signed-in
+session.</p>
+
+<h2 id="extra-domains">Extra domains</h2>
+<p>Overflow menu, <strong>Extra domains</strong>: the list of domains the
+structured share collects beyond the loaded page.</p>
+<ul>
+  <li>One URL or bare host per line; lines starting with <code>#</code> are
+    comments.</li>
+  <li>Bare hosts get <code>https</code> automatically.</li>
+  <li>The default list is the Google family; <strong>Reset to default</strong>
+    restores it.</li>
+  <li>An <strong>empty saved list is deliberate</strong>: it means collect
+    from the loaded page only. Delete the rule and reset if you want the
+    default back.</li>
+</ul>
+<pre><code># one URL or bare host per line
+https://git.example.com
+git.mycompany.com     # bare hosts get https
+accounts.google.com
+# an empty saved list means: loaded page only</code></pre>
+
+<h2 id="share-template">Share template</h2>
+<p>Long-press the share button to open the template editor. The template
+shapes the text both shares send. Leave it empty for the default message.</p>
+<table>
+  <tr><th>Token</th><th>Becomes</th></tr>
+  <tr><td><code>{payload}</code></td><td>the cookies (or captured tokens)</td></tr>
+  <tr><td><code>{url}</code></td><td>the page URL</td></tr>
+  <tr><td><code>{title}</code></td><td>the page title</td></tr>
+  <tr><td><code>{host}</code></td><td>the page host</td></tr>
+  <tr><td><code>{date}</code></td><td>today, ISO-8601</td></tr>
+</table>
+<p>Example: with this template,</p>
+<pre><code>curl -H "Cookie: {payload}" {url}</code></pre>
+<p>a payload of <code>a=1; b=2</code> on <code>https://example.com/</code>
+shares:</p>
+<pre><code>curl -H "Cookie: a=1; b=2" https://example.com/</code></pre>
+<p class="note">Unknown tokens stay as written. The session monitor, the
+debug channel, and the agent API are documented in the project
+README.</p>
+</body>
+</html>
