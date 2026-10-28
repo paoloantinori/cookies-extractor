@@ -9,7 +9,8 @@ by 2FA QR codes, interactive challenges, and anti-bot flows. Here you log in **b
 exactly like in a normal browser, then tap one button to pull the session cookies.
 
 ## What it does
-- Address bar + in-app WebView (links stay inside the app).
+- Address bar + in-app WebView (links stay inside the app, including ones that
+  ask for a new window).
 - Log in manually with **password / 2FA / OTP** (and most SSO-redirect flows).
 - **FAB** → extracts cookies and sends them through the Android **share sheet**
   (messaging apps, clipboard, etc.). Default since v2: the structured multi-domain JSON
