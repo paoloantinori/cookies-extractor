@@ -58,6 +58,42 @@
                 android:src="@android:drawable/ic_menu_more" />
         </LinearLayout>
 
+        <!-- COK-41: persistent capture banner. A captured redirect never renders a
+             page, so this (with the morphed FAB) is the durable "something happened"
+             surface; it names the source host only, never the code. -->
+        <LinearLayout
+            android:id="@+id/capture_banner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/capture_banner_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="14dp"
+            android:paddingTop="6dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="6dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/capture_banner_text"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:accessibilityLiveRegion="polite"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                tools:text="Code captured from login.microsoftonline.com" />
+
+            <Button
+                android:id="@+id/capture_banner_share"
+                style="@style/Widget.AppCompat.Button.Borderless"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:minWidth="0dp"
+                android:text="@string/capture_notice_share"
+                android:textColor="#FFFFFF" />
+        </LinearLayout>
+
         <!-- Main content: WebView fills all remaining space (PRD §3) -->
         <WebView
             android:id="@+id/webview"
@@ -67,7 +103,8 @@
 
     </LinearLayout>
 
-    <!-- Action element: FAB anchored bottom-right, triggers cookie extraction + share (PRD §3/§4.4) -->
+    <!-- Action element: FAB anchored bottom-right. Cookie share by default; while a
+         capture is held MainActivity morphs it into the code share (COK-41). -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/share_fab"
         android:layout_width="wrap_content"
@@ -76,17 +113,5 @@
         android:layout_margin="16dp"
         android:contentDescription="@string/share_cd"
         app:srcCompat="@android:drawable/ic_menu_share" />
-
-    <!-- COK-3: capture FAB, visible only while a non-http OAuth redirect is held -->
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/capture_fab"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="88dp"
-        android:contentDescription="@string/share_capture_cd"
-        android:visibility="gone"
-        app:srcCompat="@android:drawable/ic_menu_send" />
 
 </FrameLayout>

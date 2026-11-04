@@ -15,7 +15,9 @@ exactly like in a normal browser, then tap one button to pull the session cookie
 - **FAB** → extracts cookies and sends them through the Android **share sheet**
   (messaging apps, clipboard, etc.). Default since v2: the structured multi-domain JSON
   (see Extra domains); the overflow menu's cookie-format entry switches back to the
-  legacy flat "cookies for the loaded domain" string.
+  legacy flat "cookies for the loaded domain" string. While an OAuth code is captured
+  (see below) the same button shares the code instead; one back press releases the
+  capture and the button returns to cookies.
 - **Share template**: long-press the share FAB to define the message template used for
   both shares (cookies and captured OAuth tokens). Placeholders: `{payload}` (the
   cookie/token text), `{url}`, `{title}`, `{host}`, `{date}` (ISO-8601). Unknown
@@ -37,8 +39,10 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   one line** (a URL has no spaces, so no paste or relay hop can corrupt the code). The same
   captures the Microsoft sign-in landing (`…/oauth2/nativeclient?code=…`), the system-browser
   redirect target of authorization-code flows: it is https, but its address carries the one-time
-  code, so it is captured instead of loading. A Snackbar announces the capture, so the login's
-  silent terminal state is no longer mistaken for a stall.
+  code, so it is captured instead of loading. A Snackbar announces the capture, and while
+  it is held the share button becomes the code share and a banner under the address bar
+  names the source host, so the login's silent terminal state is no longer mistaken for
+  a stall.
 - **Session reset** (overflow menu): wipes cookies + WebView storage behind a confirm and
   reloads, for when a login flow gets wedged and needs a from-zero restart.
 - **Desktop site** (overflow menu): swaps the WebView's user agent to a desktop Chrome one

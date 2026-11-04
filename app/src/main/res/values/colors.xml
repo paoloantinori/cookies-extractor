@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#2E1D12</color>
+    <!-- COK-41: capture banner and morphed-FAB tint -->
+    <color name="capture_banner_bg">#0F766E</color>
 </resources>

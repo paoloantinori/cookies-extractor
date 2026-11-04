@@ -37,6 +37,7 @@ import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.Switch
+import android.content.res.ColorStateList
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -81,7 +82,13 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var urlField: EditText
-    private lateinit var captureFab: FloatingActionButton
+    private lateinit var shareFab: FloatingActionButton
+    private lateinit var captureBanner: View
+    private lateinit var captureBannerText: TextView
+
+    // The FAB's theme tint, saved before the first capture morph (COK-41) so release
+    // restores exactly what the theme gave us.
+    private var defaultFabTint: ColorStateList? = null
     private val repo by lazy { BookmarksRepository(this) }
     private val shareTemplateRepo by lazy { ShareTemplateRepository(this) }
     private val extraUrlsRepo by lazy { ExtraUrlsRepository(this) }
@@ -136,9 +143,13 @@ class MainActivity : AppCompatActivity() {
 
         webView = findViewById(R.id.webview)
         urlField = findViewById(R.id.url_field)
-        captureFab = findViewById(R.id.capture_fab)
+        shareFab = findViewById(R.id.share_fab)
+        defaultFabTint = shareFab.backgroundTintList
+        captureBanner = findViewById(R.id.capture_banner)
+        captureBannerText = findViewById(R.id.capture_banner_text)
+        findViewById<Button>(R.id.capture_banner_share)
+            .setOnClickListener { onShareCapturedRedirect() }
         val goButton: Button = findViewById(R.id.go_button)
-        val shareFab: FloatingActionButton = findViewById(R.id.share_fab)
         val overflowButton: ImageButton = findViewById(R.id.overflow_btn)
 
         configureWebView()
@@ -154,11 +165,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        shareFab.setOnClickListener { onExtractCookies() }
+        // COK-41: with a capture in hand the FAB IS the code share; otherwise cookies.
+        shareFab.setOnClickListener {
+            if (capture != null) onShareCapturedRedirect() else onExtractCookies()
+        }
         // Long-press opens the share-message template editor instead of sharing (COK-15).
         shareFab.setOnLongClickListener { showTemplateEditor(); true }
-        captureFab.setOnClickListener { onShareCapturedRedirect() }
         overflowButton.setOnClickListener { showOverflowMenu() }
+
+        // First-frame surfaces must not depend on the XML defaults mirroring the null
+        // branch of applyCaptureSurface (COK-41 review); one call makes them derived.
+        applyCaptureSurface()
 
         // Back traverses history via backCallback above (COK-7 capture release included).
         onBackPressedDispatcher.addCallback(this, backCallback)
@@ -522,26 +539,59 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Single writer for the capture state; keeps the field and the FAB visibility in
-     * lock-step. [notify] is false on restore-from-state, where a held capture is old news.
+     * Single writer for the capture state; keeps the field and its surfaces (the FAB
+     * morph, the banner) in lock-step via [applyCaptureSurface]. [notify] is false on
+     * restore-from-state, where a held capture is old news.
      */
     private fun setCaptured(url: String?, notify: Boolean = true) {
         val isNewCapture = notify && url != null && capture?.url != url
         capture = url?.let { Capture(it, webView.url) }
-        captureFab.visibility = if (url != null) View.VISIBLE else View.GONE
+        applyCaptureSurface()
         if (isNewCapture) showCaptureNotice()
     }
 
     /**
+     * The capture is app state, so it gets durable surfaces (COK-41): the single FAB
+     * morphs into the code share (icon, tint, description) and the banner names the
+     * source host, both clearing with the capture (restore included). The blocked
+     * redirect never renders a page, so before this the only persistent cue was a
+     * second stacked FAB, which read as a stall and got confused with the Snackbar
+     * button. Host only, never the code, appears here (COK-3/COK-19 no-secrets rule).
+     */
+    private fun applyCaptureSurface() {
+        val held = capture
+        shareFab.setImageResource(
+            if (held != null) android.R.drawable.ic_menu_send else android.R.drawable.ic_menu_share
+        )
+        shareFab.backgroundTintList =
+            if (held != null) ColorStateList.valueOf(getColor(R.color.capture_banner_bg))
+            else defaultFabTint
+        shareFab.contentDescription =
+            getString(if (held != null) R.string.share_capture_cd else R.string.share_cd)
+        captureBanner.visibility = if (held != null) View.VISIBLE else View.GONE
+        if (held != null) {
+            // The banner names the SOURCE: the IdP page that produced the redirect
+            // (originUrl), not the redirect target, whose host is garbage for
+            // custom schemes ("auth" out of msal://auth) and null for urn:. A fixed
+            // no-secret label covers the restored/unknown-origin case.
+            val host = held.originUrl?.let { Uri.parse(it).host }
+            captureBannerText.text =
+                if (host.isNullOrBlank()) getString(R.string.capture_banner_plain)
+                else getString(R.string.capture_banner_fmt, host)
+        }
+    }
+
+    /**
      * End-of-flow signal (COK-11): a captured redirect leaves the page frozen on the last
-     * committed screen, which reads as a stall; this says the opposite. Static text only:
-     * the captured URL (the code) never appears here. Accepted edge: while a dialog is
-     * open the notice renders behind that window; the FAB remains as the durable signal.
+     * committed screen, which reads as a stall; this says the opposite. Announcement-only
+     * since COK-41: the banner's Share button (and the morphed FAB) are the actions, so
+     * the transient notice no longer carries a competing Share of its own. Static text
+     * only: the captured URL (the code) never appears here. Accepted edge: while a dialog
+     * is open the notice renders behind that window; the banner remains as the durable
+     * signal.
      */
     private fun showCaptureNotice() {
-        Snackbar.make(webView, R.string.capture_notice, Snackbar.LENGTH_LONG)
-            .setAction(R.string.capture_notice_share) { onShareCapturedRedirect() }
-            .show()
+        Snackbar.make(webView, R.string.capture_notice, Snackbar.LENGTH_LONG).show()
     }
 
     /**
