@@ -34,8 +34,11 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   domains, and the share template with copyable examples, on the phone.
 - **OAuth redirect capture**: non-http OAuth redirects (e.g. `urn:ietf:wg:oauth:2.0:oob?code=…`)
   are caught before the WebView shows an error page, and the **full redirect URL is shared as
-  one line** (a URL has no spaces, so no paste or relay hop can corrupt the code). A Snackbar
-  announces the capture, so the login's silent terminal state is no longer mistaken for a stall.
+  one line** (a URL has no spaces, so no paste or relay hop can corrupt the code). The same
+  captures the Microsoft sign-in landing (`…/oauth2/nativeclient?code=…`), the system-browser
+  redirect target of authorization-code flows: it is https, but its address carries the one-time
+  code, so it is captured instead of loading. A Snackbar announces the capture, so the login's
+  silent terminal state is no longer mistaken for a stall.
 - **Session reset** (overflow menu): wipes cookies + WebView storage behind a confirm and
   reloads, for when a login flow gets wedged and needs a from-zero restart.
 - **Desktop site** (overflow menu): swaps the WebView's user agent to a desktop Chrome one

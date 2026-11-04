@@ -289,7 +289,7 @@ class MainActivity : AppCompatActivity() {
             // redirect would flip the committed slack client's subresources to mobile
             val target = request.url.toString()
             if (URLUtil.isNetworkUrl(target)) applyUserAgentFor(target)
-            return captureIfRedirect(request)
+            return captureIfRedirect(request, allowLanding = true)
         }
 
         override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
@@ -335,18 +335,21 @@ class MainActivity : AppCompatActivity() {
             // (this callback runs before it in Chromium) and about:blank desyncs the address
             // bar; the stock error page on this rare path is the safer residual (COK-5).
             if (!request.isForMainFrame) return
-            captureIfRedirect(request)
+            // No landing rule here: the only https URL reaching this fallback is a
+            // pasted nativeclient address whose load failed, and capturing the user's
+            // own paste would clobber a held one-time code (COK-40 review).
+            captureIfRedirect(request, allowLanding = false)
         }
 
-        private fun captureIfRedirect(request: WebResourceRequest): Boolean {
+        private fun captureIfRedirect(request: WebResourceRequest, allowLanding: Boolean): Boolean {
             val uri = request.url
-            // A bundled-asset load is app-curated help content, never an OAuth carrier:
-            // since COK-37 makes it loadable (even through the onCreateWindow gate), a
-            // failed asset load must not be announced as captured tokens, which would
-            // clobber a held one-time code.
-            if (RedirectCapture.isAndroidAssetUrl(uri.toString())) return false
-            if (!RedirectCapture.shouldCaptureScheme(uri.scheme)) return false
-            setCaptured(uri.toString())
+            val url = uri.toString()
+            val carrier =
+                if (allowLanding) RedirectCapture.shouldCapture(uri.scheme, url)
+                else RedirectCapture.shouldCaptureScheme(uri.scheme) &&
+                    !RedirectCapture.isAndroidAssetUrl(url)
+            if (!carrier) return false
+            setCaptured(url)
             return true
         }
     }

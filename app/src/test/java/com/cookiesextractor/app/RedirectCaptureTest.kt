@@ -117,6 +117,107 @@ class RedirectCaptureTest {
         assertFalse(RedirectCapture.isLoadablePageUrl("example.com/path:8080"))
     }
 
+    // ---- isNativeClientLanding + shouldCapture: the Microsoft authorize landing (COK-40) ----
+
+    // Synthetic GUID: real tenant ids identify an organization and this repo is public.
+    private val tenantBase = "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555"
+
+    @Test
+    fun nativeClientLandingWithACodeIsTheOneHttpsCapture() {
+        // The DavMail Graph PKCE redirect_uri, common and tenant-scoped flavors.
+        assertTrue(
+            RedirectCapture.isNativeClientLanding(
+                "https://login.microsoftonline.com/common/oauth2/nativeclient?code=Ab3.Xyz-_"
+            )
+        )
+        assertTrue(
+            RedirectCapture.isNativeClientLanding("$tenantBase/oauth2/nativeclient?session_state=x&code=y")
+        )
+    }
+
+    @Test
+    fun landingWithoutACodeKeepsLoadingSoTheUserSeesTheError() {
+        assertFalse(
+            RedirectCapture.isNativeClientLanding(
+                "https://login.microsoftonline.com/common/oauth2/nativeclient?error=AADSTS50020"
+            )
+        )
+        assertFalse(
+            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.com/common/oauth2/nativeclient")
+        )
+    }
+
+    @Test
+    fun loginAndConsentPagesKeepFlowing() {
+        assertFalse(
+            RedirectCapture.isNativeClientLanding("$tenantBase/oauth2/v2.0/authorize?code_challenge=x")
+        )
+        assertFalse(
+            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.com/common/")
+        )
+    }
+
+    @Test
+    fun onlyTheMicrosoftHostOverHttpsIsNativeClient() {
+        assertTrue(
+            RedirectCapture.isNativeClientLanding(
+                "HTTPS://LOGIN.MICROSOFTONLINE.COM/common/oauth2/nativeclient?code=a"
+            )
+        )
+        // Sovereign clouds run the same landing page.
+        assertTrue(
+            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.us/common/oauth2/nativeclient?code=a")
+        )
+        assertFalse(
+            RedirectCapture.isNativeClientLanding("https://login.microsoft.com/common/oauth2/nativeclient?code=a")
+        )
+        assertFalse(
+            RedirectCapture.isNativeClientLanding("https://evil.example.com/common/oauth2/nativeclient?code=a")
+        )
+        assertFalse(
+            RedirectCapture.isNativeClientLanding("http://login.microsoftonline.com/common/oauth2/nativeclient?code=a")
+        )
+    }
+
+    @Test
+    fun codeMustBeARealQueryParam() {
+        assertFalse(
+            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.com/common/oauth2/nativeclient?mycode=a")
+        )
+        assertFalse(
+            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.com/common/oauth2/nativeclient#code=a")
+        )
+        // An empty code carries no token: keep the error-page behavior instead.
+        assertFalse(
+            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.com/common/oauth2/nativeclient?code=")
+        )
+    }
+
+    @Test
+    fun landingUrlStaysLoadableForPaste() {
+        // The landing is deliberately outside the loadable gates' capture rule: pasting
+        // it must keep loading (COK-38 unification must not invert this).
+        assertTrue(
+            RedirectCapture.isLoadablePageUrl("https://login.microsoftonline.com/common/oauth2/nativeclient?code=x")
+        )
+    }
+
+    @Test
+    fun shouldCaptureCombinesSchemeAndLandingRules() {
+        assertTrue(RedirectCapture.shouldCapture("urn", "urn:ietf:wg:oauth:2.0:oob?code=x"))
+        assertTrue(
+            RedirectCapture.shouldCapture(
+                "https", "https://login.microsoftonline.com/common/oauth2/nativeclient?code=a"
+            )
+        )
+        assertFalse(RedirectCapture.shouldCapture("https", "https://example.com/"))
+        assertFalse(RedirectCapture.shouldCapture("mailto", "mailto:a@b.c"))
+        // The bundled assets are never carriers, even though file: is a capture scheme.
+        assertFalse(
+            RedirectCapture.shouldCapture("file", RedirectCapture.androidAssetUrl("guide.html"))
+        )
+    }
+
     // ---- shareText: parameter parsing ----
 
     @Test
