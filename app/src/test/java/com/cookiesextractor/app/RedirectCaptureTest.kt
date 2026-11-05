@@ -67,7 +67,20 @@ class RedirectCaptureTest {
         assertFalse(RedirectCapture.isLoadablePageUrl("example.com/path:8080"))
     }
 
-    // ---- isNativeClientLanding + shouldCapture: the Microsoft authorize landing (COK-40) ----
+    // ---- isAuthorizeLanding profiles + shouldCapture: authorize landings (COK-40/46) ----
+
+    @Test
+    fun everyLandingProfileAcceptsItsCanonicalSampleThroughTheWholeRule() {
+        // Each profile must survive not just its own predicate but the FULL capture
+        // rule (shouldCapture conjunction) and the paste-still-loads invariant, so a
+        // future profile cannot be added in a way the loadable or asset gates swallow.
+        RedirectCapture.landingProfiles.forEach { profile ->
+            val sample = "https://${profile.hosts.first()}${profile.pathSuffix}?code=x"
+            assertTrue("profile ${profile.name} must match its canonical sample", profile.matches(sample))
+            assertTrue("profile ${profile.name} must be captured", RedirectCapture.shouldCapture("https", sample))
+            assertTrue("profile ${profile.name} must stay loadable when pasted", RedirectCapture.isLoadablePageUrl(sample))
+        }
+    }
 
     // Synthetic GUID: real tenant ids identify an organization and this repo is public.
     private val tenantBase = "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555"
@@ -76,70 +89,70 @@ class RedirectCaptureTest {
     fun nativeClientLandingWithACodeIsTheOneHttpsCapture() {
         // The DavMail Graph PKCE redirect_uri, common and tenant-scoped flavors.
         assertTrue(
-            RedirectCapture.isNativeClientLanding(
+            RedirectCapture.isAuthorizeLanding(
                 "https://login.microsoftonline.com/common/oauth2/nativeclient?code=Ab3.Xyz-_"
             )
         )
         assertTrue(
-            RedirectCapture.isNativeClientLanding("$tenantBase/oauth2/nativeclient?session_state=x&code=y")
+            RedirectCapture.isAuthorizeLanding("$tenantBase/oauth2/nativeclient?session_state=x&code=y")
         )
     }
 
     @Test
     fun landingWithoutACodeKeepsLoadingSoTheUserSeesTheError() {
         assertFalse(
-            RedirectCapture.isNativeClientLanding(
+            RedirectCapture.isAuthorizeLanding(
                 "https://login.microsoftonline.com/common/oauth2/nativeclient?error=AADSTS50020"
             )
         )
         assertFalse(
-            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.com/common/oauth2/nativeclient")
+            RedirectCapture.isAuthorizeLanding("https://login.microsoftonline.com/common/oauth2/nativeclient")
         )
     }
 
     @Test
     fun loginAndConsentPagesKeepFlowing() {
         assertFalse(
-            RedirectCapture.isNativeClientLanding("$tenantBase/oauth2/v2.0/authorize?code_challenge=x")
+            RedirectCapture.isAuthorizeLanding("$tenantBase/oauth2/v2.0/authorize?code_challenge=x")
         )
         assertFalse(
-            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.com/common/")
+            RedirectCapture.isAuthorizeLanding("https://login.microsoftonline.com/common/")
         )
     }
 
     @Test
     fun onlyTheMicrosoftHostOverHttpsIsNativeClient() {
         assertTrue(
-            RedirectCapture.isNativeClientLanding(
+            RedirectCapture.isAuthorizeLanding(
                 "HTTPS://LOGIN.MICROSOFTONLINE.COM/common/oauth2/nativeclient?code=a"
             )
         )
         // Sovereign clouds run the same landing page.
         assertTrue(
-            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.us/common/oauth2/nativeclient?code=a")
+            RedirectCapture.isAuthorizeLanding("https://login.microsoftonline.us/common/oauth2/nativeclient?code=a")
         )
         assertFalse(
-            RedirectCapture.isNativeClientLanding("https://login.microsoft.com/common/oauth2/nativeclient?code=a")
+            RedirectCapture.isAuthorizeLanding("https://login.microsoft.com/common/oauth2/nativeclient?code=a")
         )
         assertFalse(
-            RedirectCapture.isNativeClientLanding("https://evil.example.com/common/oauth2/nativeclient?code=a")
+            RedirectCapture.isAuthorizeLanding("https://evil.example.com/common/oauth2/nativeclient?code=a")
         )
         assertFalse(
-            RedirectCapture.isNativeClientLanding("http://login.microsoftonline.com/common/oauth2/nativeclient?code=a")
+            RedirectCapture.isAuthorizeLanding("http://login.microsoftonline.com/common/oauth2/nativeclient?code=a")
         )
     }
 
     @Test
     fun codeMustBeARealQueryParam() {
         assertFalse(
-            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.com/common/oauth2/nativeclient?mycode=a")
+            RedirectCapture.isAuthorizeLanding("https://login.microsoftonline.com/common/oauth2/nativeclient?mycode=a")
         )
         assertFalse(
-            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.com/common/oauth2/nativeclient#code=a")
+            RedirectCapture.isAuthorizeLanding("https://login.microsoftonline.com/common/oauth2/nativeclient#code=a")
         )
         // An empty code carries no token: keep the error-page behavior instead.
         assertFalse(
-            RedirectCapture.isNativeClientLanding("https://login.microsoftonline.com/common/oauth2/nativeclient?code=")
+            RedirectCapture.isAuthorizeLanding("https://login.microsoftonline.com/common/oauth2/nativeclient?code=")
         )
     }
 

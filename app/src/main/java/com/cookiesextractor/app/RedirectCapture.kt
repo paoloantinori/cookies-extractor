@@ -69,49 +69,81 @@ object RedirectCapture {
         return !shouldCaptureScheme(url.substring(0, schemeEnd))
     }
 
-    /** Microsoft identity hosts serving the /oauth2/nativeclient authorize landing
-     *  (public cloud plus the sovereign us/cn variants, which run the same page). */
-    private val nativeClientHosts =
-        setOf("login.microsoftonline.com", "login.microsoftonline.us", "login.partner.microsoftonline.cn")
+    /**
+     * One IdP authorize-landing profile (COK-46): which https landings count as OAuth
+     * carriers. [hosts] compares case-insensitively, the path must end with
+     * [pathSuffix], and a non-empty `code` query parameter is required (the carrier
+     * definition: error landings keep loading so the user sees the error). [marker] is
+     * a literal every accepted URL contains, for the cheap per-navigation pre-filter.
+     * Adding a service means adding a profile here (plus the gateway route and the
+     * share shortcut): a runtime config file was rejected because a gateway deploy is
+     * needed anyway, so it would only add parsing and corruption surface to a
+     * security-adjacent rule. The full wiring for a new service is: one profile here,
+     * the gateway route (local_ai TASK-191, cookie_gateway.py /oauth/<svc>) and a
+     * per-service share shortcut on the phone; the add-a-service doc pins all three.
+     */
+    internal data class LandingProfile(
+        val name: String,
+        val hosts: Set<String>,
+        val pathSuffix: String,
+        val marker: String,
+    ) {
+        // Structural guard: the marker pre-filter can only be sound if the marker is
+        // part of the path suffix, so a contradicting profile fails at construction
+        // instead of silently rejecting true landings on the phone.
+        init {
+            require(marker in pathSuffix) { "profile $name: marker '$marker' must appear in pathSuffix '$pathSuffix'" }
+        }
+
+        fun matches(url: String): Boolean {
+            if (!url.contains(marker)) return false
+            val uri = runCatching { URI(url) }.getOrNull() ?: return false
+            if (!uri.scheme.equals("https", ignoreCase = true)) return false
+            val host = uri.host ?: return false
+            if (host.lowercase() !in hosts) return false
+            if (!uri.path.endsWith(pathSuffix)) return false
+            return uri.rawQuery?.split('&')
+                ?.any { it.startsWith("code=") && it.length > "code=".length } == true
+        }
+    }
+
+    /** The authorize-landing profiles (COK-46); microsoft-nativeclient is profile 1. */
+    internal val landingProfiles = listOf(
+        LandingProfile(
+            name = "microsoft-nativeclient",
+            hosts = setOf(
+                "login.microsoftonline.com",
+                "login.microsoftonline.us",
+                "login.partner.microsoftonline.cn",
+            ),
+            pathSuffix = "/oauth2/nativeclient",
+            marker = "nativeclient",
+        ),
+    )
 
     /**
-     * True for the Microsoft authorize landing, `https://login.microsoftonline.com/{tenant}/
-     * oauth2/nativeclient?code=...`: the one https URL treated as an OAuth carrier (COK-40).
-     * An authorization-code flow that registers the system-browser redirect_uri strands the
-     * one-time code in a page address no share affordance reaches (the DavMail Graph PKCE
-     * re-auth, verified 2026-11-04), so the capture call site classifies this landing like
-     * a non-http redirect. A non-empty `code` query parameter is required: an error landing
-     * (wrong account, AADSTS family) keeps loading so the user sees the error instead of
-     * sharing an address with no token. Deliberately narrow (Microsoft identity hosts,
-     * https only) and deliberately outside the loadable gates: pasting the landing URL in
-     * the address bar still loads it.
+     * True when [url] matches an authorize-landing profile: the one https URL family
+     * treated as OAuth carriers (COK-40/46). An authorization-code flow that registers
+     * the system-browser redirect_uri strands the one-time code in a page address no
+     * share affordance reaches (the DavMail Graph PKCE re-auth, verified 2026-11-04),
+     * so the capture call site classifies these landings like non-http redirects.
+     * Deliberately outside the loadable gates: pasting the landing URL in the address
+     * bar still loads it.
      */
-    fun isNativeClientLanding(url: String): Boolean {
-        // Cheap pre-filter on this per-navigation path: every URL the checks below
-        // accept contains this literal in its (case-sensitive) path, so the URI
-        // parse runs only for Microsoft-ish URLs, not for every page load.
-        if (!url.contains("nativeclient")) return false
-        val uri = runCatching { URI(url) }.getOrNull() ?: return false
-        if (!uri.scheme.equals("https", ignoreCase = true)) return false
-        val host = uri.host ?: return false
-        if (host.lowercase() !in nativeClientHosts) return false
-        if (!uri.path.endsWith("/oauth2/nativeclient")) return false
-        return uri.rawQuery?.split('&')
-            ?.any { it.startsWith("code=") && it.length > "code=".length } == true
-    }
+    fun isAuthorizeLanding(url: String): Boolean = landingProfiles.any { it.matches(url) }
 
     /**
      * The one composite capture rule for in-flight navigations (the override path):
-     * a non-http carrier scheme, or the one https OAuth landing ([isNativeClientLanding]),
-     * but never the bundled assets (COK-37: app-curated help content must not be announced
-     * as tokens). The onReceivedError fallback deliberately keeps the narrower scheme-only
-     * rule: the only https URL reaching it is a pasted landing whose load failed, and
-     * capturing the user's own paste would clobber a held one-time code. Pure JVM so the
-     * conjunction itself runs under plain JUnit (COK-40), the same delegation pattern
-     * isLoadablePageUrl gives the loadable gates.
+     * a non-http carrier scheme, or an authorize-landing profile match
+     * ([isAuthorizeLanding]), but never the bundled assets (COK-37: app-curated help
+     * content must not be announced as tokens). The onReceivedError fallback deliberately
+     * keeps the narrower scheme-only rule: the only https URL reaching it is a pasted
+     * landing whose load failed, and capturing the user's own paste would clobber a held
+     * one-time code. Pure JVM so the conjunction itself runs under plain JUnit (COK-40),
+     * the same delegation pattern isLoadablePageUrl gives the loadable gates.
      */
     fun shouldCapture(scheme: String?, url: String): Boolean =
-        !isAndroidAssetUrl(url) && (shouldCaptureScheme(scheme) || isNativeClientLanding(url))
+        !isAndroidAssetUrl(url) && (shouldCaptureScheme(scheme) || isAuthorizeLanding(url))
 
     /**
      * Renders [url]'s query parameters as "name=value" lines, URL order preserved, duplicates

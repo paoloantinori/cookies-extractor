@@ -37,9 +37,10 @@ exactly like in a normal browser, then tap one button to pull the session cookie
 - **OAuth redirect capture**: non-http OAuth redirects (e.g. `urn:ietf:wg:oauth:2.0:oob?code=…`)
   are caught before the WebView shows an error page, and the **full redirect URL is shared as
   one line** (a URL has no spaces, so no paste or relay hop can corrupt the code). The same
-  captures the Microsoft sign-in landing (`…/oauth2/nativeclient?code=…`), the system-browser
-  redirect target of authorization-code flows: it is https, but its address carries the one-time
-  code, so it is captured instead of loading. The capture is a visible state, not a
+  captures authorize-landing addresses such as the Microsoft sign-in landing
+  (`…/oauth2/nativeclient?code=…`, the system-browser redirect target of authorization-code
+  flows): an https address that carries the one-time code is captured instead of loading,
+  per the configured landing profiles. The capture is a visible state, not a
   flash: while it is held a banner under the address bar says what was captured and from
   where, the share button becomes the code share, and both stay on screen (surviving
   navigation) until you dismiss them or the code expires after about ten minutes. When
