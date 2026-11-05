@@ -48,7 +48,6 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
-import com.google.android.material.snackbar.Snackbar
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.net.Inet4Address
@@ -72,7 +71,8 @@ import org.json.JSONObject
  *  - COK-3: capture non-http OAuth redirects and share the full redirect URL (COK-16)
  *  - COK-9: clear cookies + WebView storage behind a confirm dialog, then reload
  *  - COK-10: token-gated HTTP debug channel (developer options) for external control
- *  - COK-11: Snackbar notice when an OAuth capture lands (the flow's silent terminal state)
+ *  - COK-11/43: persistent banner when an OAuth capture lands (the flow's silent
+     terminal state), which survives navigation and expires visibly
  *  - COK-12: debug /tap and /screenshot reach the topmost open dialog, not just the activity
  *
  * Rotation is handled via android:configChanges in the manifest, so the WebView is not
@@ -85,6 +85,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var shareFab: FloatingActionButton
     private lateinit var captureBanner: View
     private lateinit var captureBannerText: TextView
+    private lateinit var captureBannerShare: Button
 
     // The FAB's theme tint, saved before the first capture morph (COK-41) so release
     // restores exactly what the theme gave us.
@@ -108,14 +109,21 @@ class MainActivity : AppCompatActivity() {
     // a still-loading PREVIOUS page finishing inside the wait window completes it early.
     @Volatile private var pendingLoad: CompletableFuture<Unit>? = null
 
-    // Held capture: the redirect URL plus the URL of the page that produced it (drives the
-    // origin-bound release in onPageFinished). One nullable field so the pair cannot
-    // desync. Kept from a capture until the user navigates on purpose (address bar,
-    // bookmark, back press), a page settles on a different site, or a new capture replaces
-    // it. Never logged or toasted (COK-3 security rule).
-    private data class Capture(val url: String, val originUrl: String?)
+    // Held capture: the redirect URL, the URL of the page that produced it (names the
+    // source host in the banner), and the wall-clock capture time (drives the visible
+    // expiry). One nullable field so the triple cannot desync. Durable since COK-43:
+    // it survives deliberate navigation and is ended only by expiry, dismissal, a
+    // replacement capture, or an explicit session wipe. Never logged or toasted
+    // (COK-3 security rule).
+    private data class Capture(val url: String, val originUrl: String?, val at: Long)
 
     private var capture: Capture? = null
+
+    // COK-43: expiry is app state too, and a visible one. It is DERIVED from the capture
+    // timestamp (no mutable flag): at the TTL the deadline runnable just re-renders, the
+    // banner turns amber and the FAB reverts to cookies, but nothing disappears until the
+    // user dismisses it.
+    private val captureHandler = Handler(Looper.getMainLooper())
 
     // Back traverses WebView history when there is any; with no history the callback
     // disables itself so the system handles back, which lets Android 16+ show the
@@ -123,7 +131,8 @@ class MainActivity : AppCompatActivity() {
     // doUpdateVisitedHistory keeps isEnabled in step with the history stack.
     private val backCallback = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
-            setCaptured(null)
+            // A held capture survives back since COK-43: going back in history is
+            // browsing, not a decision about the code.
             webView.goBack()
         }
     }
@@ -147,8 +156,10 @@ class MainActivity : AppCompatActivity() {
         defaultFabTint = shareFab.backgroundTintList
         captureBanner = findViewById(R.id.capture_banner)
         captureBannerText = findViewById(R.id.capture_banner_text)
-        findViewById<Button>(R.id.capture_banner_share)
-            .setOnClickListener { onShareCapturedRedirect() }
+        captureBannerShare = findViewById(R.id.capture_banner_share)
+        captureBannerShare.setOnClickListener { onShareCapturedRedirect() }
+        findViewById<ImageButton>(R.id.capture_banner_dismiss)
+            .setOnClickListener { setCaptured(null) }
         val goButton: Button = findViewById(R.id.go_button)
         val overflowButton: ImageButton = findViewById(R.id.overflow_btn)
 
@@ -165,9 +176,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // COK-41: with a capture in hand the FAB IS the code share; otherwise cookies.
+        // COK-41/43: while a LIVE capture is held the FAB is the code share; with none
+        // held (or after the visible expiry) it shares cookies.
         shareFab.setOnClickListener {
-            if (capture != null) onShareCapturedRedirect() else onExtractCookies()
+            if (liveCapture() != null) onShareCapturedRedirect() else onExtractCookies()
         }
         // Long-press opens the share-message template editor instead of sharing (COK-15).
         shareFab.setOnLongClickListener { showTemplateEditor(); true }
@@ -177,7 +189,7 @@ class MainActivity : AppCompatActivity() {
         // branch of applyCaptureSurface (COK-41 review); one call makes them derived.
         applyCaptureSurface()
 
-        // Back traverses history via backCallback above (COK-7 capture release included).
+        // Back traverses history via backCallback above (captures survive back since COK-43).
         onBackPressedDispatcher.addCallback(this, backCallback)
 
         // Cold start: load the default URL so the address bar and WebView stay in sync.
@@ -193,11 +205,24 @@ class MainActivity : AppCompatActivity() {
             // or back would exit the app until the restored page commits (COK-25 review).
             backCallback.isEnabled = webView.canGoBack()
             savedInstanceState.getString(STATE_ENTRY_URL)?.let { entryUrl = it }
-            savedInstanceState.getString(STATE_CAPTURED_REDIRECT)?.let { setCaptured(it, notify = false) }
+            savedInstanceState.getString(STATE_CAPTURED_REDIRECT)?.let {
+                // at defaults to 0 (already expired): a bundle without the timestamp must
+                // not hand a stale code a fresh ten-minute window.
+                setCaptured(it, savedInstanceState.getLong(STATE_CAPTURED_AT, 0L))
+            }
         }
         // Fresh starts too (a notification tap on a dead app creates the activity with no
         // saved state); the extra is consumed on first handling so recreates stay put.
         handleNavigateExtra(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-derive the capture surfaces on every foreground return: the expiry deadline
+        // rides the uptime clock (frozen in deep sleep) while liveness reads the wall
+        // clock, so a device that slept past the TTL must not wake up showing the live
+        // state (COK-43 review).
+        applyCaptureSurface()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -205,11 +230,15 @@ class MainActivity : AppCompatActivity() {
         webView.saveState(outState)
         // Instance state is shell-dumpable; that narrow exposure of the one-time code is
         // deliberately accepted over losing the capture on a recreate.
-        capture?.let { outState.putString(STATE_CAPTURED_REDIRECT, it.url) }
+        capture?.let {
+            outState.putString(STATE_CAPTURED_REDIRECT, it.url)
+            outState.putLong(STATE_CAPTURED_AT, it.at)
+        }
         entryUrl?.let { outState.putString(STATE_ENTRY_URL, it) }
     }
 
     override fun onDestroy() {
+        captureHandler.removeCallbacksAndMessages(null)
         // Dismiss any open dialog (bookmarks sheet, confirm, developer): each leaks its
         // window on config-change recreates not covered by configChanges
         // (e.g. fontScale/density/locale). Copy first: each dismiss mutates the deque.
@@ -331,17 +360,15 @@ class MainActivity : AppCompatActivity() {
                 urlField.setText(url)
                 syncedUrl = url
             }
-            // Only a settled network page can release or rebind a capture: Chromium also
-            // posts onPageFinished(failingUrl) right after a blocked or failed non-http
-            // load, and a host-bearing captured URL (myapp://callback) must not release
-            // itself.
+            // COK-43: a settled page no longer releases a capture (only expiry,
+            // dismissal, replacement, or an explicit session wipe do). It still BINDS a
+            // restored/unknown-origin capture to this page so the banner can name the
+            // source host.
             if (!URLUtil.isNetworkUrl(url)) return
             val held = capture ?: return
-            when {
-                RedirectCapture.shouldReleaseCapture(url, held.originUrl) -> setCaptured(null)
-                held.originUrl == null ->
-                    // Bind a restored/unknown-origin capture to the first page that settles.
-                    capture = held.copy(originUrl = url)
+            if (held.originUrl == null) {
+                capture = held.copy(originUrl = url)
+                applyCaptureSurface()
             }
         }
 
@@ -530,77 +557,92 @@ class MainActivity : AppCompatActivity() {
      * Shares the last captured OAuth redirect (COK-3). The payload is the raw redirect
      * URL, not parsed parameters: a URL is one space-free line, so it survives relays
      * that strip or rejoin newlines (2026-09-06 incident: newline-separated params
-     * arrived glued and the code exchange failed). The capture stays in place so the
-     * FAB is re-clickable until the next navigation clears it.
+     * arrived glued and the code exchange failed). Since COK-43 the capture stays in
+     * place until expiry or dismissal, so the FAB stays re-clickable.
      */
     private fun onShareCapturedRedirect() {
-        val captured = capture?.url ?: return
+        val captured = liveCapture()?.url ?: return
         shareViaChooser(captured, R.string.share_tokens_preamble, R.string.share_tokens_chooser_title)
     }
 
     /**
      * Single writer for the capture state; keeps the field and its surfaces (the FAB
-     * morph, the banner) in lock-step via [applyCaptureSurface]. [notify] is false on
-     * restore-from-state, where a held capture is old news.
+     * morph, the banner) in lock-step via [applyCaptureSurface], and arms the expiry
+     * (COK-43: a capture is durable state; it survives navigation and ends only by
+     * expiry, dismissal, replacement, or an explicit session wipe). The expiry is
+     * derived from the timestamp at render time; the deadline runnable only re-renders.
      */
-    private fun setCaptured(url: String?, notify: Boolean = true) {
-        val isNewCapture = notify && url != null && capture?.url != url
-        capture = url?.let { Capture(it, webView.url) }
+    private fun setCaptured(url: String?, at: Long = System.currentTimeMillis()) {
+        capture = url?.let { Capture(it, webView.url, at) }
+        captureHandler.removeCallbacksAndMessages(null)
+        capture?.let { armCaptureExpiry(it.at) }
         applyCaptureSurface()
-        if (isNewCapture) showCaptureNotice()
+    }
+
+    /** A capture whose ten-minute window has not run out; expired ones no longer share. */
+    private fun liveCapture(): Capture? =
+        capture?.takeIf { System.currentTimeMillis() - it.at < CAPTURE_TTL_MS }
+
+    /**
+     * Authorization codes are short-lived server-side; at the TTL the held capture turns
+     * into the visible expired state instead of vanishing. Wall clock because the
+     * capture (and its timestamp) survive process death via instance state.
+     */
+    private fun armCaptureExpiry(at: Long) {
+        val remaining = CAPTURE_TTL_MS - (System.currentTimeMillis() - at)
+        if (remaining > 0) captureHandler.postDelayed({ applyCaptureSurface() }, remaining)
     }
 
     /**
      * The capture is app state, so it gets durable surfaces (COK-41): the single FAB
-     * morphs into the code share (icon, tint, description) and the banner names the
-     * source host, both clearing with the capture (restore included). The blocked
-     * redirect never renders a page, so before this the only persistent cue was a
-     * second stacked FAB, which read as a stall and got confused with the Snackbar
-     * button. Host only, never the code, appears here (COK-3/COK-19 no-secrets rule).
+     * morphs into the code share (icon, tint, description) and a persistent banner
+     * under the address bar tells what is held, from where, and since when. COK-43:
+     * the banner never auto-hides, and expiry is a visible amber state with the Share
+     * action removed; only the user dismisses it. The blocked redirect never renders
+     * a page, so before COK-41 the only persistent cue was a second stacked FAB, which
+     * read as a stall. Host only, never the code (COK-3/COK-19 no-secrets rule).
      */
     private fun applyCaptureSurface() {
         val held = capture
+        val active = liveCapture() != null
         shareFab.setImageResource(
-            if (held != null) android.R.drawable.ic_menu_send else android.R.drawable.ic_menu_share
+            if (active) android.R.drawable.ic_menu_send else android.R.drawable.ic_menu_share
         )
         shareFab.backgroundTintList =
-            if (held != null) ColorStateList.valueOf(getColor(R.color.capture_banner_bg))
+            if (active) ColorStateList.valueOf(getColor(R.color.capture_banner_bg))
             else defaultFabTint
         shareFab.contentDescription =
-            getString(if (held != null) R.string.share_capture_cd else R.string.share_cd)
+            getString(if (active) R.string.share_capture_cd else R.string.share_cd)
         captureBanner.visibility = if (held != null) View.VISIBLE else View.GONE
-        if (held != null) {
-            // The banner names the SOURCE: the IdP page that produced the redirect
-            // (originUrl), not the redirect target, whose host is garbage for
-            // custom schemes ("auth" out of msal://auth) and null for urn:. A fixed
-            // no-secret label covers the restored/unknown-origin case.
-            val host = held.originUrl?.let { Uri.parse(it).host }
-            captureBannerText.text =
-                if (host.isNullOrBlank()) getString(R.string.capture_banner_plain)
-                else getString(R.string.capture_banner_fmt, host)
+        if (held == null) return
+        captureBanner.backgroundTintList = ColorStateList.valueOf(
+            getColor(if (active) R.color.capture_banner_bg else R.color.capture_banner_expired)
+        )
+        captureBannerShare.visibility = if (active) View.VISIBLE else View.GONE
+        if (active) {
+            val time = CaptureTimeFormat.format(Date(held.at))
+            captureBannerText.text = getString(R.string.capture_banner_fmt, captureSourceLabel(held), time)
+        } else {
+            captureBannerText.text = getString(R.string.capture_banner_expired)
         }
     }
 
     /**
-     * End-of-flow signal (COK-11): a captured redirect leaves the page frozen on the last
-     * committed screen, which reads as a stall; this says the opposite. Announcement-only
-     * since COK-41: the banner's Share button (and the morphed FAB) are the actions, so
-     * the transient notice no longer carries a competing Share of its own. Static text
-     * only: the captured URL (the code) never appears here. Accepted edge: while a dialog
-     * is open the notice renders behind that window; the banner remains as the durable
-     * signal.
+     * The banner names the SOURCE: the IdP page that produced the redirect (originUrl),
+     * not the redirect target, whose host is garbage for custom schemes ("auth" out of
+     * msal://auth) and null for urn:. A fixed label covers restored/unknown origins.
      */
-    private fun showCaptureNotice() {
-        Snackbar.make(webView, R.string.capture_notice, Snackbar.LENGTH_LONG).show()
-    }
+    private fun captureSourceLabel(held: Capture): String =
+        held.originUrl?.let { Uri.parse(it).host }?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.capture_source_fallback)
 
     /**
-     * All programmatic loadUrl navigation funnels here so the capture is released exactly once.
-     * The one documented exception is the onCreateWindow blank-target routing (chrome client):
-     * a page-initiated click loads raw, keeping a held capture.
+     * All programmatic loadUrl navigation funnels here. Since COK-43 a deliberate
+     * navigation does NOT release a held capture: the code outlives a page change and
+     * the banner stays up. The onCreateWindow blank-target routing (chrome client)
+     * also loads raw, keeping a held capture.
      */
     private fun navigate(url: String) {
-        setCaptured(null)
         applyUserAgentFor(url)
         webView.loadUrl(url)
     }
@@ -736,11 +778,18 @@ class MainActivity : AppCompatActivity() {
      * Confirm-then-wipe of all WebView session state (COK-9). A wedged IdP session (server-side
      * state that no in-page action can advance) is only cleared by deleting everything; the
      * reload makes the fresh state visible immediately. Never logs or toasts any wiped value.
+     * Since COK-43 the wipe is the ONE action that discards a live captured code, so one
+     * dialog carries both confirmations: the wipe warning plus the disclosure of what is
+     * being thrown away.
      */
     private fun confirmClearSession() {
+        val message = liveCapture()
+            ?.let { getString(R.string.capture_clear_disclosure_fmt, captureSourceLabel(it)) }
+            ?.let { disclosure -> getString(R.string.clear_session_message) + "\n\n" + disclosure }
+            ?: getString(R.string.clear_session_message)
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.clear_session_title)
-            .setMessage(R.string.clear_session_message)
+            .setMessage(message)
             .setPositiveButton(R.string.clear_session_confirm) { _, _ -> clearSessionAndReload() }
             .setNegativeButton(R.string.clear_session_cancel, null)
             .create()
@@ -758,7 +807,7 @@ class MainActivity : AppCompatActivity() {
         CookieManager.getInstance().removeAllCookies {
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                setCaptured(null) // the wipe starts every login over, a held capture included
+                setCaptured(null) // the confirmed wipe starts every login over, capture included
                 Toast.makeText(this, R.string.toast_session_cleared, Toast.LENGTH_SHORT).show()
                 // Reload only if the user did not navigate elsewhere while the wipe ran.
                 if (url != null && webView.url == url) navigate(url)
@@ -870,7 +919,9 @@ class MainActivity : AppCompatActivity() {
                 DebugChannelServer.Response(200, "OK", "image/jpeg", jpeg)
             }
             "/capture" -> {
-                val held = withUi<String>(3000) { f -> f.complete(capture?.url) } ?: return serviceUnavailable()
+                // Live only (COK-43): an expired-but-held code must not be handed out as
+                // if it were shareable, matching what the UI refuses to share.
+                val held = withUi<String>(3000) { f -> f.complete(liveCapture()?.url) } ?: return serviceUnavailable()
                 if (held == null) return DebugChannelServer.Response.text(404, "Not Found", "no capture\r\n")
                 DebugChannelServer.Response.ok(RedirectCapture.shareText(held) + "\r\n")
             }
@@ -939,7 +990,7 @@ class MainActivity : AppCompatActivity() {
                         .put("url", webView.url ?: JSONObject.NULL)
                         .put("title", webView.title ?: JSONObject.NULL)
                         .put("entry_url", entryUrl ?: JSONObject.NULL)
-                        .put("capture_held", capture != null)
+                        .put("capture_held", liveCapture() != null)
                         .put("api_level", Api.API_LEVEL)
                         .toString()
                 )
@@ -1013,7 +1064,9 @@ class MainActivity : AppCompatActivity() {
         } ?: unavailable()
         Api.Command.Capture ->
             withUi<Api.Outcome>(3000) { f ->
-                val held = capture?.url
+                // Live only (COK-43): the SPI must agree with the screen about what is
+                // shareable; an expired-but-held code answers 404 like an absent one.
+                val held = liveCapture()?.url
                 f.complete(
                     if (held == null) Api.Outcome.Err(404, "no_capture", "no redirect captured")
                     else Api.Outcome.Ok(200, "{\"url\":${Api.json(held)}}")
@@ -1124,7 +1177,7 @@ class MainActivity : AppCompatActivity() {
     private fun statusJson(): String = JSONObject().apply {
         put("url", webView.url ?: "")
         put("title", webView.title ?: "")
-        put("capture_held", capture != null)
+        put("capture_held", liveCapture() != null)
         put("debug_port", debugChannel?.boundPort ?: 0)
     }.toString()
 
@@ -1445,7 +1498,14 @@ class MainActivity : AppCompatActivity() {
         private const val DEBUG_PORT = 8777
         private val GUIDE_URL = RedirectCapture.androidAssetUrl("guide.html")
         private const val STATE_CAPTURED_REDIRECT = "captured_redirect"
+        private const val STATE_CAPTURED_AT = "captured_at"
         private const val STATE_ENTRY_URL = "entry_url"
+
+        /** Authorization codes die server-side in minutes; COK-43 makes the app's own
+         *  expiry visible instead of letting the code die silently in the share. */
+        private const val CAPTURE_TTL_MS = 10 * 60 * 1000L
+
+        private val CaptureTimeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
         private const val MAX_EXTRA_URLS_CHARS = 4000
         private const val NAV_WAIT_LOAD_MS = 10_000L
         private const val PREF_STRUCTURED_COOKIES = "structured_cookies"

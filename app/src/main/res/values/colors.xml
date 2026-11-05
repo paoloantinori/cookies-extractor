@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#2E1D12</color>
-    <!-- COK-41: capture banner and morphed-FAB tint -->
+    <!-- COK-41: capture banner and morphed-FAB tint; COK-43 adds the expired state -->
     <color name="capture_banner_bg">#0F766E</color>
+    <color name="capture_banner_expired">#92400E</color>
 </resources>

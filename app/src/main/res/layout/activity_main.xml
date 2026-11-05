@@ -92,6 +92,17 @@
                 android:minWidth="0dp"
                 android:text="@string/capture_notice_share"
                 android:textColor="#FFFFFF" />
+
+            <ImageButton
+                android:id="@+id/capture_banner_dismiss"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="?android:attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/capture_banner_dismiss_cd"
+                android:minWidth="40dp"
+                android:minHeight="40dp"
+                android:src="@android:drawable/ic_menu_close_clear_cancel"
+                app:tint="#FFFFFF" />
         </LinearLayout>
 
         <!-- Main content: WebView fills all remaining space (PRD §3) -->

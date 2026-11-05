@@ -114,36 +114,6 @@ object RedirectCapture {
         !isAndroidAssetUrl(url) && (shouldCaptureScheme(scheme) || isNativeClientLanding(url))
 
     /**
-     * True when a page settling on [currentUrl] releases a capture produced while the app
-     * was on [originUrl]. Same-site fallback loads after the blocked redirect (an IdP's
-     * www. sibling, the relying party's callback page) keep the one-time code: hosts
-     * compare by registrable-domain approximation, equal host OR equal last two labels.
-     * The approximation can over-preserve on multi-label public suffixes (example.co.uk
-     * vs evil.co.uk), which errs toward never dropping a code. A scheme change releases;
-     * explicit ports are ignored; anything without a parseable host (about:blank, a urn:,
-     * a null origin after a restore) preserves. Callers gate this on network URLs only.
-     */
-    fun shouldReleaseCapture(currentUrl: String?, originUrl: String?): Boolean {
-        if (currentUrl == null || originUrl == null) return false
-        val current = runCatching { URI(currentUrl) }.getOrNull() ?: return false
-        val origin = runCatching { URI(originUrl) }.getOrNull() ?: return false
-        val currentHost = current.host?.lowercase() ?: return false
-        val originHost = origin.host?.lowercase() ?: return false
-        if (current.scheme?.lowercase() != origin.scheme?.lowercase()) return true
-        return !sameRegistrableHost(currentHost, originHost)
-    }
-
-    private fun sameRegistrableHost(a: String, b: String): Boolean {
-        if (a == b) return true
-        // shared two-label host-family rule (COK-38 hoist); compound-TLD hosts over-
-        // group, which errs toward keeping a capture rather than dropping a code.
-        // Trailing-dot FQDNs (empty last label) keep the old tolerant comparison.
-        val fa = CookieCollector.hostFamilyKey(a.trimEnd('.'))
-        val fb = CookieCollector.hostFamilyKey(b.trimEnd('.'))
-        return fa != null && fa == fb
-    }
-
-    /**
      * Renders [url]'s query parameters as "name=value" lines, URL order preserved, duplicates
      * kept. The fragment is stripped first (some IdPs append one; it is not a parameter),
      * values are form-decoded per RFC 6749 section 4.1.2 ('+' is a space; a literal '+'
