@@ -43,10 +43,12 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   flash: while it is held a banner under the address bar says what was captured and from
   where, the share button becomes the code share, and both stay on screen (surviving
   navigation) until you dismiss them or the code expires after about ten minutes. When
-  it expires the banner turns amber and tells you, instead of vanishing. Clearing the
-  session while a code is held asks you first. The login's silent terminal state is no
-  longer mistaken for a stall: the page stops where the code was taken, and the banner
-  says so.
+  it expires the banner turns amber and tells you, instead of vanishing. And once you
+  share the code, the banner concludes in gray ("shared at HH:mm: the exchange completes
+  on the gateway"), because the code is single-use and the rest of the login happens on
+  the server. Clearing the session while a code is held asks you first. The login's
+  silent terminal state is no longer mistaken for a stall: the page stops where the
+  code was taken, and the banner says so.
 - **Session reset** (overflow menu): wipes cookies + WebView storage behind a confirm and
   reloads, for when a login flow gets wedged and needs a from-zero restart.
 - **Desktop site** (overflow menu): swaps the WebView's user agent to a desktop Chrome one

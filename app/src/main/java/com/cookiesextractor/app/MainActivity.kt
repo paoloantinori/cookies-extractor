@@ -115,7 +115,7 @@ class MainActivity : AppCompatActivity() {
     // it survives deliberate navigation and is ended only by expiry, dismissal, a
     // replacement capture, or an explicit session wipe. Never logged or toasted
     // (COK-3 security rule).
-    private data class Capture(val url: String, val originUrl: String?, val at: Long)
+    private data class Capture(val url: String, val originUrl: String?, val at: Long, val shared: Boolean = false)
 
     private var capture: Capture? = null
 
@@ -124,6 +124,12 @@ class MainActivity : AppCompatActivity() {
     // banner turns amber and the FAB reverts to cookies, but nothing disappears until the
     // user dismisses it.
     private val captureHandler = Handler(Looper.getMainLooper())
+
+    // COK-44: the capture was handed off to a share target. The code is single-use, so
+    // this ends the shareable state: the banner shows the concluded variant, the FAB
+    // reverts to cookies, and the SPI answers as if no live code were held. The flag
+    // lives on Capture (Capture.shared), set via .copy at handoff.
+
 
     // Back traverses WebView history when there is any; with no history the callback
     // disables itself so the system handles back, which lets Android 16+ show the
@@ -177,9 +183,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         // COK-41/43: while a LIVE capture is held the FAB is the code share; with none
-        // held (or after the visible expiry) it shares cookies.
+        // held (after expiry or the visible handoff) it shares cookies.
         shareFab.setOnClickListener {
-            if (liveCapture() != null) onShareCapturedRedirect() else onExtractCookies()
+            if (shareableCapture() != null) onShareCapturedRedirect() else onExtractCookies()
         }
         // Long-press opens the share-message template editor instead of sharing (COK-15).
         shareFab.setOnLongClickListener { showTemplateEditor(); true }
@@ -208,7 +214,11 @@ class MainActivity : AppCompatActivity() {
             savedInstanceState.getString(STATE_CAPTURED_REDIRECT)?.let {
                 // at defaults to 0 (already expired): a bundle without the timestamp must
                 // not hand a stale code a fresh ten-minute window.
-                setCaptured(it, savedInstanceState.getLong(STATE_CAPTURED_AT, 0L))
+                setCaptured(
+                    it,
+                    savedInstanceState.getLong(STATE_CAPTURED_AT, 0L),
+                    savedInstanceState.getBoolean(STATE_CAPTURED_SHARED),
+                )
             }
         }
         // Fresh starts too (a notification tap on a dead app creates the activity with no
@@ -233,6 +243,7 @@ class MainActivity : AppCompatActivity() {
         capture?.let {
             outState.putString(STATE_CAPTURED_REDIRECT, it.url)
             outState.putLong(STATE_CAPTURED_AT, it.at)
+            outState.putBoolean(STATE_CAPTURED_SHARED, it.shared)
         }
         entryUrl?.let { outState.putString(STATE_ENTRY_URL, it) }
     }
@@ -561,8 +572,14 @@ class MainActivity : AppCompatActivity() {
      * place until expiry or dismissal, so the FAB stays re-clickable.
      */
     private fun onShareCapturedRedirect() {
-        val captured = liveCapture()?.url ?: return
-        shareViaChooser(captured, R.string.share_tokens_preamble, R.string.share_tokens_chooser_title)
+        val held = shareableCapture() ?: return
+        shareViaChooser(held.url, R.string.share_tokens_preamble, R.string.share_tokens_chooser_title)
+        // The handoff is the app's part done (COK-44): the chooser carries the code to
+        // the share target and the exchange completes on the gateway. Mark the capture
+        // shared so the surfaces show the concluded state instead of pretending the
+        // code is still pending; the code is single-use, so a second share has no use.
+        capture = held.copy(shared = true)
+        applyCaptureSurface()
     }
 
     /**
@@ -572,16 +589,24 @@ class MainActivity : AppCompatActivity() {
      * expiry, dismissal, replacement, or an explicit session wipe). The expiry is
      * derived from the timestamp at render time; the deadline runnable only re-renders.
      */
-    private fun setCaptured(url: String?, at: Long = System.currentTimeMillis()) {
-        capture = url?.let { Capture(it, webView.url, at) }
+    private fun setCaptured(
+        url: String?,
+        at: Long = System.currentTimeMillis(),
+        shared: Boolean = false,
+    ) {
+        capture = url?.let { Capture(it, webView.url, at, shared) }
         captureHandler.removeCallbacksAndMessages(null)
         capture?.let { armCaptureExpiry(it.at) }
         applyCaptureSurface()
     }
 
-    /** A capture whose ten-minute window has not run out; expired ones no longer share. */
-    private fun liveCapture(): Capture? =
-        capture?.takeIf { System.currentTimeMillis() - it.at < CAPTURE_TTL_MS }
+    /**
+     * A capture still worth sharing: inside the ten-minute window and not already
+     * handed off (COK-44). Expired and shared ones answer like none held, so the SPI
+     * and the screen agree about what is shareable.
+     */
+    private fun shareableCapture(): Capture? =
+        capture?.takeIf { System.currentTimeMillis() - it.at < CAPTURE_TTL_MS && !it.shared }
 
     /**
      * Authorization codes are short-lived server-side; at the TTL the held capture turns
@@ -604,7 +629,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun applyCaptureSurface() {
         val held = capture
-        val active = liveCapture() != null
+        val active = shareableCapture() != null
         shareFab.setImageResource(
             if (active) android.R.drawable.ic_menu_send else android.R.drawable.ic_menu_share
         )
@@ -616,14 +641,22 @@ class MainActivity : AppCompatActivity() {
         captureBanner.visibility = if (held != null) View.VISIBLE else View.GONE
         if (held == null) return
         captureBanner.backgroundTintList = ColorStateList.valueOf(
-            getColor(if (active) R.color.capture_banner_bg else R.color.capture_banner_expired)
+            getColor(
+                when {
+                    active -> R.color.capture_banner_bg
+                    held.shared -> R.color.capture_banner_done
+                    else -> R.color.capture_banner_expired
+                }
+            )
         )
         captureBannerShare.visibility = if (active) View.VISIBLE else View.GONE
-        if (active) {
-            val time = CaptureTimeFormat.format(Date(held.at))
-            captureBannerText.text = getString(R.string.capture_banner_fmt, captureSourceLabel(held), time)
-        } else {
-            captureBannerText.text = getString(R.string.capture_banner_expired)
+        val time = CaptureTimeFormat.format(Date(held.at))
+        captureBannerText.text = when {
+            active -> getString(R.string.capture_banner_fmt, captureSourceLabel(held), time)
+            // The concluded state (COK-44): the code is handed off, the rest of the
+            // login completes on the gateway server, nothing is pending here.
+            held.shared -> getString(R.string.capture_banner_shared, time)
+            else -> getString(R.string.capture_banner_expired)
         }
     }
 
@@ -783,7 +816,7 @@ class MainActivity : AppCompatActivity() {
      * being thrown away.
      */
     private fun confirmClearSession() {
-        val message = liveCapture()
+        val message = shareableCapture()
             ?.let { getString(R.string.capture_clear_disclosure_fmt, captureSourceLabel(it)) }
             ?.let { disclosure -> getString(R.string.clear_session_message) + "\n\n" + disclosure }
             ?: getString(R.string.clear_session_message)
@@ -921,7 +954,7 @@ class MainActivity : AppCompatActivity() {
             "/capture" -> {
                 // Live only (COK-43): an expired-but-held code must not be handed out as
                 // if it were shareable, matching what the UI refuses to share.
-                val held = withUi<String>(3000) { f -> f.complete(liveCapture()?.url) } ?: return serviceUnavailable()
+                val held = withUi<String>(3000) { f -> f.complete(shareableCapture()?.url) } ?: return serviceUnavailable()
                 if (held == null) return DebugChannelServer.Response.text(404, "Not Found", "no capture\r\n")
                 DebugChannelServer.Response.ok(RedirectCapture.shareText(held) + "\r\n")
             }
@@ -990,7 +1023,7 @@ class MainActivity : AppCompatActivity() {
                         .put("url", webView.url ?: JSONObject.NULL)
                         .put("title", webView.title ?: JSONObject.NULL)
                         .put("entry_url", entryUrl ?: JSONObject.NULL)
-                        .put("capture_held", liveCapture() != null)
+                        .put("capture_held", shareableCapture() != null)
                         .put("api_level", Api.API_LEVEL)
                         .toString()
                 )
@@ -1066,7 +1099,7 @@ class MainActivity : AppCompatActivity() {
             withUi<Api.Outcome>(3000) { f ->
                 // Live only (COK-43): the SPI must agree with the screen about what is
                 // shareable; an expired-but-held code answers 404 like an absent one.
-                val held = liveCapture()?.url
+                val held = shareableCapture()?.url
                 f.complete(
                     if (held == null) Api.Outcome.Err(404, "no_capture", "no redirect captured")
                     else Api.Outcome.Ok(200, "{\"url\":${Api.json(held)}}")
@@ -1177,7 +1210,7 @@ class MainActivity : AppCompatActivity() {
     private fun statusJson(): String = JSONObject().apply {
         put("url", webView.url ?: "")
         put("title", webView.title ?: "")
-        put("capture_held", liveCapture() != null)
+        put("capture_held", shareableCapture() != null)
         put("debug_port", debugChannel?.boundPort ?: 0)
     }.toString()
 
@@ -1499,6 +1532,7 @@ class MainActivity : AppCompatActivity() {
         private val GUIDE_URL = RedirectCapture.androidAssetUrl("guide.html")
         private const val STATE_CAPTURED_REDIRECT = "captured_redirect"
         private const val STATE_CAPTURED_AT = "captured_at"
+        private const val STATE_CAPTURED_SHARED = "captured_shared"
         private const val STATE_ENTRY_URL = "entry_url"
 
         /** Authorization codes die server-side in minutes; COK-43 makes the app's own
