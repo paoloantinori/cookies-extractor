@@ -18,16 +18,5 @@ class GuideAssetTest {
     }
 
     @Test
-    fun pageHasNoScript() = assertTrue("<script" !in html.lowercase())
-
-    @Test
-    fun pageReferencesNoRemoteResources() {
-        // Visible text (the curl example) legitimately contains URLs; only
-        // resource positions must be local.
-        listOf(
-            Regex("""\bsrc\s*=\s*["']https?://"""),
-            Regex("""\bhref\s*=\s*["']https?://"""),
-            Regex("""url\(\s*["']?https?://"""),
-        ).forEach { pattern -> assertTrue("remote resource (${pattern})", pattern.containsMatchIn(html).not()) }
-    }
+    fun pageObeysTheAssetHouseRules() = AssetHouseRules.assertHouseRules(File("src/main/assets/guide.html"))
 }

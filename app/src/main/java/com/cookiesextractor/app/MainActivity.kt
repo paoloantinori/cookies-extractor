@@ -580,6 +580,13 @@ class MainActivity : AppCompatActivity() {
         // code is still pending; the code is single-use, so a second share has no use.
         capture = held.copy(shared = true)
         applyCaptureSurface()
+        // COK-45: replace the frozen IdP spinner with the conclusion page, so the
+        // screen body matches the state the banner just announced instead of leaving
+        // a dead "Authenticating..." artifact from an interrupted navigation.
+        navigate(RedirectCapture.androidAssetUrl("handoff.html"))
+        // The concluded flow's history is dead weight: drop it so system back cannot
+        // resurrect the frozen spinner one press away (COK-45 review).
+        webView.clearHistory()
     }
 
     /**
@@ -686,7 +693,9 @@ class MainActivity : AppCompatActivity() {
      * [payload] carrying the respective text.
      */
     private fun shareContext(payload: String): Map<String, String> {
-        val url = webView.url.orEmpty()
+        // A non-network page (the handoff screen, COK-45) has no meaningful url/host:
+        // template {url}/{host} fall back to the URL the user actually came from.
+        val url = currentNetworkUrl() ?: entryUrl.orEmpty()
         return mapOf(
             ShareTemplate.KEY_PAYLOAD to payload,
             ShareTemplate.KEY_URL to url,

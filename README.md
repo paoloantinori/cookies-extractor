@@ -46,7 +46,9 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   it expires the banner turns amber and tells you, instead of vanishing. And once you
   share the code, the banner concludes in gray ("shared at HH:mm: the exchange completes
   on the gateway"), because the code is single-use and the rest of the login happens on
-  the server. Clearing the session while a code is held asks you first. The login's
+  the server; at that point the app also replaces the frozen login page with a short
+  built-in conclusion screen. Clearing the
+  session while a code is held asks you first. The login's
   silent terminal state is no longer mistaken for a stall: the page stops where the
   code was taken, and the banner says so.
 - **Session reset** (overflow menu): wipes cookies + WebView storage behind a confirm and
