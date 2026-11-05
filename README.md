@@ -16,8 +16,8 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   (messaging apps, clipboard, etc.). Default since v2: the structured multi-domain JSON
   (see Extra domains); the overflow menu's cookie-format entry switches back to the
   legacy flat "cookies for the loaded domain" string. While an OAuth code is captured
-  (see below) the same button shares the code instead; one back press releases the
-  capture and the button returns to cookies.
+  (see below) the same button shares the code instead; it returns to cookies when the
+  capture is dismissed (banner ✕), expires, or the session is cleared.
 - **Share template**: long-press the share FAB to define the message template used for
   both shares (cookies and captured OAuth tokens). Placeholders: `{payload}` (the
   cookie/token text), `{url}`, `{title}`, `{host}`, `{date}` (ISO-8601). Unknown
@@ -40,18 +40,16 @@ exactly like in a normal browser, then tap one button to pull the session cookie
   captures authorize-landing addresses such as the Microsoft sign-in landing
   (`…/oauth2/nativeclient?code=…`, the system-browser redirect target of authorization-code
   flows): an https address that carries the one-time code is captured instead of loading,
-  per the configured landing profiles. The capture is a visible state, not a
-  flash: while it is held a banner under the address bar says what was captured and from
-  where, the share button becomes the code share, and both stay on screen (surviving
-  navigation) until you dismiss them or the code expires after about ten minutes. When
-  it expires the banner turns amber and tells you, instead of vanishing. And once you
-  share the code, the banner concludes in gray ("shared at HH:mm: the exchange completes
-  on the gateway"), because the code is single-use and the rest of the login happens on
-  the server; at that point the app also replaces the frozen login page with a short
-  built-in conclusion screen. Clearing the
-  session while a code is held asks you first. The login's
-  silent terminal state is no longer mistaken for a stall: the page stops where the
-  code was taken, and the banner says so.
+  per the configured landing profiles. The capture is a visible state, not a flash:
+  while it is held a banner under the address bar says what was captured and from where,
+  the share button becomes the code share, and both stay on screen (surviving
+  navigation) until you dismiss them or the code expires after about ten minutes; when
+  it expires the banner turns amber and tells you instead of vanishing. Once you share
+  the code, the banner concludes in gray ("captured at HH:mm and handed off; the
+  exchange completes on the gateway") and the app replaces the frozen login page with a
+  short built-in conclusion screen, because the code is single-use and the rest of the
+  login happens on the server. Clearing the session while a code is held asks you
+  first.
 - **Session reset** (overflow menu): wipes cookies + WebView storage behind a confirm and
   reloads, for when a login flow gets wedged and needs a from-zero restart.
 - **Desktop site** (overflow menu): swaps the WebView's user agent to a desktop Chrome one
@@ -130,6 +128,8 @@ Licensed under the Apache License 2.0 (see `LICENSE`).
 - `fastlane/metadata/android/`: store listing metadata (en-US, it-IT: descriptions,
   icon, screenshots, changelogs) consumed by F-Droid.
 - `app/src/main/res/`: layouts, strings, themes, launcher icon.
+- `app/src/main/assets/`: the bundled in-app pages (guide, handoff conclusion screen);
+  static HTML, scriptless, local-only.
 - `tools/gen_icon.py`: regenerates the ten legacy launcher PNGs (committed bytes are the
   Pillow output).
 - `PRD.md`: product requirements (including the passkey limitation).
@@ -146,7 +146,7 @@ and `/navigate` accepts http(s) URLs only. Endpoints (GET):
 | `/navigate?url=` | loads the URL in the WebView |
 | `/text` | the page's rendered text (`document.body.innerText`) |
 | `/screenshot` | JPEG of the topmost window (dialog when one is open, else the activity) |
-| `/capture` | the captured OAuth parameters (404 if none held) |
+| `/capture` | the captured OAuth parameters (404 if none live: none held, expired, or already shared) |
 | `/clear` | wipes cookies + storage and reloads (same as the overflow menu's Clear session) |
 | `/console?n=50` | the last N page-console lines (recorded only while enabled) |
 | `/tap?x=&y=` | dispatches a touch to the topmost window (dialog-aware) |
