@@ -391,8 +391,8 @@ class MainActivity : AppCompatActivity() {
             // bar; the stock error page on this rare path is the safer residual (COK-5).
             if (!request.isForMainFrame) return
             // No landing rule here: the only https URL reaching this fallback is a
-            // pasted nativeclient address whose load failed, and capturing the user's
-            // own paste would clobber a held one-time code (COK-40 review).
+            // pasted authorize-landing address (any profile) whose load failed, and
+            // capturing the user's own paste would clobber a held one-time code.
             captureIfRedirect(request, allowLanding = false)
         }
 

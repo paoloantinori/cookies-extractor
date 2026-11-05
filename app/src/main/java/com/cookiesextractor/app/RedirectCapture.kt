@@ -79,8 +79,8 @@ object RedirectCapture {
      * share shortcut): a runtime config file was rejected because a gateway deploy is
      * needed anyway, so it would only add parsing and corruption surface to a
      * security-adjacent rule. The full wiring for a new service is: one profile here,
-     * the gateway route (local_ai TASK-191, cookie_gateway.py /oauth/<svc>) and a
-     * per-service share shortcut on the phone; the add-a-service doc pins all three.
+     * plus the gateway route and the per-service phone shortcut; the add-a-service
+     * recipe (docs/OAUTH_FLOWS.md in the gateway repo) pins all three.
      */
     internal data class LandingProfile(
         val name: String,

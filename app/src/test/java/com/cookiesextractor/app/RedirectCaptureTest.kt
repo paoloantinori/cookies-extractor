@@ -75,7 +75,9 @@ class RedirectCaptureTest {
         // rule (shouldCapture conjunction) and the paste-still-loads invariant, so a
         // future profile cannot be added in a way the loadable or asset gates swallow.
         RedirectCapture.landingProfiles.forEach { profile ->
-            val sample = "https://${profile.hosts.first()}${profile.pathSuffix}?code=x"
+            // Real landings carry a tenant path segment before the suffix: the sample
+            // keeps one, so a future required-prefix field cannot slip past untested.
+            val sample = "https://${profile.hosts.first()}/tenant-xyz${profile.pathSuffix}?code=x"
             assertTrue("profile ${profile.name} must match its canonical sample", profile.matches(sample))
             assertTrue("profile ${profile.name} must be captured", RedirectCapture.shouldCapture("https", sample))
             assertTrue("profile ${profile.name} must stay loadable when pasted", RedirectCapture.isLoadablePageUrl(sample))
