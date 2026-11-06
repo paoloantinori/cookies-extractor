@@ -106,7 +106,9 @@ class MainActivity : AppCompatActivity() {
     // COK-24: /api/v1/navigate?wait=load completes when the next onPageFinished fires.
     // Armed and disarmed from the UI thread around the load; cleared on timeout so a late
     // onPageFinished cannot cross-complete a following wait navigation. Residual, accepted:
-    // a still-loading PREVIOUS page finishing inside the wait window completes it early.
+    // a still-loading PREVIOUS page finishing inside the wait window completes it early,
+    // and so does the handoff page the share loads (COK-45): both are "the next
+    // onPageFinished", which is the documented wait semantic.
     @Volatile private var pendingLoad: CompletableFuture<Unit>? = null
 
     // Held capture: the redirect URL, the URL of the page that produced it (names the
@@ -114,7 +116,8 @@ class MainActivity : AppCompatActivity() {
     // expiry). One nullable field so the triple cannot desync. Durable since COK-43:
     // it survives deliberate navigation and is ended only by expiry, dismissal, a
     // replacement capture, or an explicit session wipe. Never logged or toasted
-    // (COK-3 security rule).
+    // (COK-3 security rule). shared (COK-44) marks the handoff to a share target: the
+    // code is single-use, so that ends the shareable state, set via .copy(shared=true).
     private data class Capture(val url: String, val originUrl: String?, val at: Long, val shared: Boolean = false)
 
     private var capture: Capture? = null
@@ -124,11 +127,6 @@ class MainActivity : AppCompatActivity() {
     // banner turns amber and the FAB reverts to cookies, but nothing disappears until the
     // user dismisses it.
     private val captureHandler = Handler(Looper.getMainLooper())
-
-    // COK-44: the capture was handed off to a share target. The code is single-use, so
-    // this ends the shareable state: the banner shows the concluded variant, the FAB
-    // reverts to cookies, and the SPI answers as if no live code were held. The flag
-    // lives on Capture (Capture.shared), set via .copy at handoff.
 
 
     // Back traverses WebView history when there is any; with no history the callback
@@ -381,6 +379,11 @@ class MainActivity : AppCompatActivity() {
                 capture = held.copy(originUrl = url)
                 applyCaptureSurface()
             }
+            // The concluded flow's history is dead weight: prune it here, where the
+            // handoff page has COMMITTED, because loadUrl-then-clearHistory races the
+            // pending navigation and can leave the frozen IdP page one back press away
+            // (pre-release review of the COK-45 form).
+            if (url == HANDOFF_URL) webView.clearHistory()
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -401,8 +404,7 @@ class MainActivity : AppCompatActivity() {
             val url = uri.toString()
             val carrier =
                 if (allowLanding) RedirectCapture.shouldCapture(uri.scheme, url)
-                else RedirectCapture.shouldCaptureScheme(uri.scheme) &&
-                    !RedirectCapture.isAndroidAssetUrl(url)
+                else RedirectCapture.shouldCaptureFromError(uri.scheme, url)
             if (!carrier) return false
             setCaptured(url)
             return true
@@ -583,10 +585,7 @@ class MainActivity : AppCompatActivity() {
         // COK-45: replace the frozen IdP spinner with the conclusion page, so the
         // screen body matches the state the banner just announced instead of leaving
         // a dead "Authenticating..." artifact from an interrupted navigation.
-        navigate(RedirectCapture.androidAssetUrl("handoff.html"))
-        // The concluded flow's history is dead weight: drop it so system back cannot
-        // resurrect the frozen spinner one press away (COK-45 review).
-        webView.clearHistory()
+        navigate(HANDOFF_URL)
     }
 
     /**
@@ -601,6 +600,13 @@ class MainActivity : AppCompatActivity() {
         at: Long = System.currentTimeMillis(),
         shared: Boolean = false,
     ) {
+        // A re-fired identical redirect is the SAME one-time code: keep its original
+        // capture time and TTL instead of re-dating a code the server may have long
+        // expired (pre-release review: the old isNewCapture guard must survive).
+        if (url != null && capture?.url == url) {
+            applyCaptureSurface()
+            return
+        }
         capture = url?.let { Capture(it, webView.url, at, shared) }
         captureHandler.removeCallbacksAndMessages(null)
         capture?.let { armCaptureExpiry(it.at) }
@@ -1540,6 +1546,10 @@ class MainActivity : AppCompatActivity() {
         private const val DEBUG_PORT = 8777
         private val GUIDE_URL = RedirectCapture.androidAssetUrl("guide.html")
         private const val STATE_CAPTURED_REDIRECT = "captured_redirect"
+
+        /** The bundled conclusion page (COK-45), the one other bundled asset besides
+         *  the guide; a val because it is built from the profile-time constant. */
+        private val HANDOFF_URL = RedirectCapture.androidAssetUrl("handoff.html")
         private const val STATE_CAPTURED_AT = "captured_at"
         private const val STATE_CAPTURED_SHARED = "captured_shared"
         private const val STATE_ENTRY_URL = "entry_url"

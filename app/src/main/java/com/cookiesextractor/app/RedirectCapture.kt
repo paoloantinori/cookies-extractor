@@ -136,14 +136,23 @@ object RedirectCapture {
      * The one composite capture rule for in-flight navigations (the override path):
      * a non-http carrier scheme, or an authorize-landing profile match
      * ([isAuthorizeLanding]), but never the bundled assets (COK-37: app-curated help
-     * content must not be announced as tokens). The onReceivedError fallback deliberately
-     * keeps the narrower scheme-only rule: the only https URL reaching it is a pasted
-     * landing whose load failed, and capturing the user's own paste would clobber a held
-     * one-time code. Pure JVM so the conjunction itself runs under plain JUnit (COK-40),
-     * the same delegation pattern isLoadablePageUrl gives the loadable gates.
+     * content must not be announced as tokens). Pure JVM so the conjunction itself runs
+     * under plain JUnit (COK-40), the same delegation pattern isLoadablePageUrl gives
+     * the loadable gates.
      */
     fun shouldCapture(scheme: String?, url: String): Boolean =
         !isAndroidAssetUrl(url) && (shouldCaptureScheme(scheme) || isAuthorizeLanding(url))
+
+    /**
+     * The narrower rule the onReceivedError fallback runs: a non-http carrier scheme,
+     * never the bundled assets, and never an authorize landing (the only https URL
+     * reaching that fallback is a PASTED landing whose load failed, and capturing the
+     * user's own paste would clobber a held one-time code). Same home as
+     * [shouldCapture] so the two paths cannot drift (pre-release review: the fallback
+     * used to re-inline this conjunction in the activity).
+     */
+    fun shouldCaptureFromError(scheme: String?, url: String): Boolean =
+        !isAndroidAssetUrl(url) && shouldCaptureScheme(scheme)
 
     /**
      * Renders [url]'s query parameters as "name=value" lines, URL order preserved, duplicates

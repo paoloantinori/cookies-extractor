@@ -183,6 +183,21 @@ class RedirectCaptureTest {
         )
     }
 
+    @Test
+    fun errorFallbackNeverCapturesLandingsOrAssets() {
+        // The onReceivedError fallback runs the narrower rule: a pasted landing whose
+        // load failed must not be announced as a capture, and neither may assets.
+        assertTrue(RedirectCapture.shouldCaptureFromError("urn", "urn:ietf:wg:oauth:2.0:oob?code=x"))
+        assertFalse(
+            RedirectCapture.shouldCaptureFromError(
+                "https", "https://login.microsoftonline.com/common/oauth2/nativeclient?code=a"
+            )
+        )
+        assertFalse(
+            RedirectCapture.shouldCaptureFromError("file", RedirectCapture.androidAssetUrl("guide.html"))
+        )
+    }
+
     // ---- shareText: parameter parsing ----
 
     @Test
